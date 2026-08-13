@@ -19,6 +19,9 @@ final class DictationController: ObservableObject {
     private var targetApplication: NSRunningApplication?
     private var modelReady = false
     private var operationInProgress = false
+    private var fnKeyMonitor: FnKeyMonitor?
+    private var recordingStartedByFn = false
+    private var fnReleasedDuringStartup = false
 
     var recordButtonTitle: String {
         isRecording ? "Stop" : "Record"
@@ -44,6 +47,10 @@ final class DictationController: ObservableObject {
         Task {
             await prepareModel()
         }
+        fnKeyMonitor = FnKeyMonitor { [weak self] action in
+            self?.handleFnAction(action)
+        }
+        fnKeyMonitor?.start()
     }
 
     func toggleRecording() {
@@ -51,7 +58,7 @@ final class DictationController: ObservableObject {
             stopRecording()
         } else {
             Task {
-                await startRecording()
+                await startRecording(triggeredByFn: false)
             }
         }
     }
@@ -76,16 +83,45 @@ final class DictationController: ObservableObject {
         do {
             try await transcriber.loadModel()
             modelReady = true
-            statusText = "Ready — large-v3-turbo is local"
+            statusText = "Ready — hold Fn to talk"
         } catch {
             statusText = "Model failed: \(error.localizedDescription)"
         }
         isBusy = false
     }
 
-    private func startRecording() async {
+    private func handleFnAction(_ action: PushToTalkAction) {
+        switch action {
+        case .none:
+            break
+        case .start:
+            guard modelReady, !isRecording, !operationInProgress else {
+                return
+            }
+            recordingStartedByFn = true
+            fnReleasedDuringStartup = false
+            Task {
+                await startRecording(triggeredByFn: true)
+            }
+        case .stop:
+            guard recordingStartedByFn else {
+                return
+            }
+            if !isRecording {
+                fnReleasedDuringStartup = true
+            } else {
+                stopRecording()
+            }
+        }
+    }
+
+    private func startRecording(triggeredByFn: Bool) async {
         guard modelReady, !operationInProgress, let archive else {
             return
+        }
+        if !triggeredByFn {
+            recordingStartedByFn = false
+            fnReleasedDuringStartup = false
         }
         operationInProgress = true
         isBusy = true
@@ -95,6 +131,7 @@ final class DictationController: ObservableObject {
             statusText = "Microphone denied — allow it in System Settings"
             isBusy = false
             operationInProgress = false
+            recordingStartedByFn = false
             return
         }
 
@@ -118,11 +155,16 @@ final class DictationController: ObservableObject {
             isRecording = true
             isBusy = false
             operationInProgress = false
-            statusText = "Recording…"
+            statusText = triggeredByFn ? "Recording… release Fn to stop" : "Recording…"
+            if triggeredByFn && fnReleasedDuringStartup {
+                fnReleasedDuringStartup = false
+                stopRecording()
+            }
         } catch {
             statusText = "Recording failed: \(error.localizedDescription)"
             isBusy = false
             operationInProgress = false
+            recordingStartedByFn = false
         }
     }
 
@@ -131,6 +173,8 @@ final class DictationController: ObservableObject {
             return
         }
         recorder.stop()
+        recordingStartedByFn = false
+        fnReleasedDuringStartup = false
         isRecording = false
         isBusy = true
         operationInProgress = true

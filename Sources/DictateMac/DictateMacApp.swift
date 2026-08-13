@@ -37,6 +37,10 @@ private struct DictationMenu: View {
             .frame(maxWidth: .infinity)
             .disabled(!controller.canToggleRecording)
 
+            Text("Hold Fn to record · release to paste")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             if !controller.latestTranscript.isEmpty {
                 Divider()
                 Text("Latest transcript")

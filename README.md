@@ -5,9 +5,9 @@ Minimal local macOS dictation for German and English. It automatically detects t
 ## Use
 
 1. Start `DictateMac.app`; a waveform appears in the menu bar.
-2. Wait until it says **Ready**. First launch downloads the ~3 GB Whisper model.
-3. Put the cursor in any text field, then click the waveform → **Record**.
-4. Speak; click **Stop**. DictateMac transcribes, copies, and auto-pastes the text.
+2. Grant **Microphone** and **Accessibility** when prompted. Accessibility is required for the global Fn trigger and auto-paste.
+3. Put the cursor in any text field.
+4. Hold **Fn/Globe** while speaking; release it to transcribe and paste. The menu’s **Record/Stop** button remains available as a fallback.
 
 If auto-paste is unavailable, the transcript remains on the clipboard. Click **Enable Accessibility…** in the menu and allow DictateMac under **System Settings → Privacy & Security → Accessibility**.
 
@@ -61,4 +61,4 @@ open dist/DictateMac.app
 
 ## Current status
 
-Version `0.1.0`: menu-bar UI, durable WAV archive, local German/English transcription, clipboard fallback, and Accessibility auto-paste are implemented. No global keyboard shortcut in v1.
+Version `0.1.1`: hold-Fn push-to-talk, menu-bar fallback, durable WAV archive, local German/English transcription, clipboard fallback, and Accessibility auto-paste are implemented.

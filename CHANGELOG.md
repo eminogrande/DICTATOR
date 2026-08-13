@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 — 2026-08-13
+
+### Added
+
+- Global hold-Fn/Globe push-to-talk: press to record, release to transcribe and paste.
+- Menu text and permission guidance for the Fn workflow.
+- Modifier-state regression tests, including duplicate-event suppression.
+
+### Kept
+
+- The visible menu Record/Stop button remains the no-hotkey fallback.
+
 ## 0.1.0 — 2026-08-13
 
 ### Added

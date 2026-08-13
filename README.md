@@ -1,6 +1,6 @@
 # DictateMac
 
-Minimal local macOS dictation for German and English.
+Minimal local macOS dictation for German and English. It automatically detects the primary language of each recording; switching languages inside one short recording is not reliably supported in v0.1.0.
 
 ## Use
 

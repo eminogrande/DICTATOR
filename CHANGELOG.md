@@ -1,0 +1,18 @@
+# Changelog
+
+## 0.1.0 — 2026-08-13
+
+### Added
+
+- Native macOS menu-bar recording UI.
+- Local German/English transcription with WhisperKit `large-v3-turbo`.
+- Permanent per-dictation WAV, transcript, and JSON metadata archive.
+- Automatic paste into the previously active application through Accessibility.
+- Clipboard fallback when Accessibility or the target application is unavailable.
+- Microphone/Accessibility permission guidance and archive shortcut.
+- Deterministic archive/metadata/transcript-cleanup tests.
+- Reproducible ad-hoc-signed `.app` build script.
+
+### Rationale
+
+The first version deliberately uses one visible Record/Stop control and one pinned local model. It avoids accounts, cloud storage, global shortcuts, model selection, and editing so the core dictation path stays understandable and testable.

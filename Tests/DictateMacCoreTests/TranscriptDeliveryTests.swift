@@ -7,5 +7,6 @@ final class TranscriptDeliveryTests: XCTestCase {
         XCTAssertEqual(TranscriptDelivery.pasteShortcutPosted.rawValue, "pasteShortcutPosted")
         XCTAssertEqual(TranscriptDelivery.accessibilityDenied.rawValue, "accessibilityDenied")
         XCTAssertEqual(TranscriptDelivery.targetUnavailable.rawValue, "targetUnavailable")
+        XCTAssertEqual(TranscriptDelivery.clipboardOnly.rawValue, "clipboardOnly")
     }
 }

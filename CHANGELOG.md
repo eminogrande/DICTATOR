@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 — 2026-08-13
+
+### Added
+
+- Persistent **Auto-Paste** On/Off switch; defaults to On.
+- Clipboard-only delivery mode when Auto-Paste is Off.
+- Per-session metadata recording the chosen Auto-Paste state and exact delivery result.
+- Archive-completeness regression test covering audio, transcript, and metadata.
+
+### Verified
+
+- Existing archive audit: 28/28 session folders contain `audio.wav`, `transcript.txt`, and `metadata.json`.
+- Completed sessions contain non-empty transcripts; no historical files were removed during installation.
+
 ## 0.2.0 — 2026-08-13
 
 ### Fixed

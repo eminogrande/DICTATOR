@@ -28,6 +28,7 @@ final class ArchiveTests: XCTestCase {
             transcriptFilename: "transcript.txt",
             status: .recording,
             delivery: nil,
+            autoPasteEnabled: false,
             error: nil
         )
 
@@ -35,6 +36,7 @@ final class ArchiveTests: XCTestCase {
         let decoded = try MetadataCodec.decode(encoded)
 
         XCTAssertEqual(decoded, metadata)
+        XCTAssertEqual(decoded.autoPasteEnabled, false)
         XCTAssertTrue(String(decoding: encoded, as: UTF8.self).contains("large-v3_turbo"))
     }
 

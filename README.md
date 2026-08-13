@@ -7,13 +7,14 @@ A fun, local macOS dictation app for German and English. It automatically detect
 1. Start `DICTATOR.app`; a waveform appears in the menu bar.
 2. Grant **Microphone** and **Accessibility** when prompted. Accessibility is required for the global Fn trigger and auto-paste.
 3. Put the cursor in any text field.
-4. Hold **Fn/Globe** while speaking; release it to transcribe and paste. The menu’s **Record/Stop** button remains available as a fallback.
+4. Choose **Auto-Paste On** to insert at the current cursor, or **Off** to copy only.
+5. Hold **Fn/Globe** while speaking; release it to transcribe. The menu’s **Record/Stop** button remains available as a fallback.
 
 If auto-paste is unavailable, the transcript remains on the clipboard. Click **Enable Accessibility…** in the menu and allow DICTATOR under **System Settings → Privacy & Security → Accessibility**.
 
 ## What is stored
 
-Every attempt gets its own folder:
+Every attempt is kept permanently. Nothing is auto-deleted. Each session gets its own folder:
 
 ```text
 ~/Library/Application Support/DictateMac/Dictations/<UTC timestamp>/
@@ -61,4 +62,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.2.0`: DICTATOR branding, stable Accessibility identity across updates, focused-field auto-insertion, hold-Fn push-to-talk, local German/English transcription, and clipboard fallback.
+Version `0.3.0`: persistent Auto-Paste On/Off, clipboard copy in both modes, permanent audio/transcript/metadata history, hold-Fn push-to-talk, and local German/English transcription.

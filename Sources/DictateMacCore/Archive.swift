@@ -23,6 +23,7 @@ public enum TranscriptDelivery: String, Codable, Sendable {
     case pasteShortcutPosted
     case accessibilityDenied
     case targetUnavailable
+    case clipboardOnly
 }
 
 public struct DictationMetadata: Codable, Equatable, Sendable {
@@ -35,6 +36,7 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
     public var transcriptFilename: String
     public var status: DictationStatus
     public var delivery: TranscriptDelivery?
+    public var autoPasteEnabled: Bool?
     public var error: String?
 
     public init(
@@ -47,6 +49,7 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
         transcriptFilename: String,
         status: DictationStatus,
         delivery: TranscriptDelivery?,
+        autoPasteEnabled: Bool? = nil,
         error: String?
     ) {
         self.sessionID = sessionID
@@ -58,6 +61,7 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
         self.transcriptFilename = transcriptFilename
         self.status = status
         self.delivery = delivery
+        self.autoPasteEnabled = autoPasteEnabled
         self.error = error
     }
 }
@@ -171,6 +175,7 @@ public struct ArchiveStore: Sendable {
             transcriptFilename: transcriptURL.lastPathComponent,
             status: .recording,
             delivery: nil,
+            autoPasteEnabled: nil,
             error: nil
         )
 

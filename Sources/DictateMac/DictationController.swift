@@ -10,6 +10,13 @@ final class DictationController: ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var isBusy = true
     @Published private(set) var accessibilityGranted = TranscriptDeliveryService.isAccessibilityGranted
+    @Published var autoPasteEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(autoPasteEnabled, forKey: Self.autoPasteDefaultsKey)
+        }
+    }
+
+    private static let autoPasteDefaultsKey = "autoPasteEnabled"
 
     private let recorder = AudioRecorder()
     private let transcriber = LocalTranscriber()
@@ -17,6 +24,7 @@ final class DictationController: ObservableObject {
     private var archive: ArchiveStore?
     private var currentSession: DictationSession?
     private var targetApplication: NSRunningApplication?
+    private var currentSessionAutoPasteEnabled = true
     private var modelReady = false
     private var operationInProgress = false
     private var fnKeyMonitor: FnKeyMonitor?
@@ -36,6 +44,11 @@ final class DictationController: ObservableObject {
     }
 
     init() {
+        let defaults = UserDefaults.standard
+        autoPasteEnabled = defaults.object(forKey: Self.autoPasteDefaultsKey) == nil
+            ? true
+            : defaults.bool(forKey: Self.autoPasteDefaultsKey)
+
         do {
             archive = try ArchiveStore()
         } catch {
@@ -153,6 +166,9 @@ final class DictationController: ObservableObject {
                 throw error
             }
 
+            currentSessionAutoPasteEnabled = autoPasteEnabled
+            session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
+            try archive.writeMetadata(for: session)
             currentSession = session
             targetApplication = target
             isRecording = true
@@ -210,12 +226,14 @@ final class DictationController: ObservableObject {
             latestTranscript = transcript
             let delivery = await TranscriptDeliveryService.deliver(
                 transcript,
-                to: targetApplication
+                to: targetApplication,
+                mode: AutoPastePolicy.deliveryMode(isEnabled: currentSessionAutoPasteEnabled)
             )
 
             session.metadata.status = .completed
             session.metadata.completedAt = Date()
             session.metadata.delivery = delivery
+            session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
             session.metadata.error = nil
             try archive.writeMetadata(for: session)
 
@@ -229,6 +247,8 @@ final class DictationController: ObservableObject {
                 statusText = "Copied — enable Accessibility for DICTATOR"
             case .targetUnavailable:
                 statusText = "Copied — target field unavailable"
+            case .clipboardOnly:
+                statusText = "Copied — Auto-Paste is off"
             }
         } catch {
             session.metadata.status = .failed

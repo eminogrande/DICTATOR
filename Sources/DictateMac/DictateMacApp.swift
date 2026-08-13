@@ -50,7 +50,12 @@ private struct DictationMenu: View {
             .frame(maxWidth: .infinity)
             .disabled(!controller.canToggleRecording)
 
-            Text("Hold Fn to record · release to paste")
+            Toggle("Auto-Paste", isOn: $controller.autoPasteEnabled)
+                .toggleStyle(.switch)
+
+            Text(controller.autoPasteEnabled
+                 ? "Fn release: copy + paste at cursor"
+                 : "Fn release: copy to clipboard only")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

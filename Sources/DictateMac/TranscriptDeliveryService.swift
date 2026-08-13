@@ -59,12 +59,16 @@ enum TranscriptDeliveryService {
 
     static func deliver(
         _ transcript: String,
-        to targetApplication: NSRunningApplication?
+        to targetApplication: NSRunningApplication?,
+        mode: TranscriptDeliveryMode
     ) async -> TranscriptDelivery {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(transcript, forType: .string)
 
+        guard mode == .automaticInsert else {
+            return .clipboardOnly
+        }
         guard isAccessibilityGranted else {
             return .accessibilityDenied
         }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 — 2026-08-13
+
+### Fixed
+
+- Insert the transcript directly into the focused text field through macOS Accessibility.
+- Wait for target-app activation before using Cmd-V as a compatibility fallback.
+- Keep the transcript on the clipboard when neither insertion route succeeds.
+
 ## 0.1.1 — 2026-08-13
 
 ### Added

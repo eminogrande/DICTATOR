@@ -61,4 +61,4 @@ open dist/DictateMac.app
 
 ## Current status
 
-Version `0.1.1`: hold-Fn push-to-talk, menu-bar fallback, durable WAV archive, local German/English transcription, clipboard fallback, and Accessibility auto-paste are implemented.
+Version `0.1.2`: hold-Fn push-to-talk, focused-field auto-insertion, menu-bar fallback, durable WAV archive, local German/English transcription, and clipboard fallback are implemented.

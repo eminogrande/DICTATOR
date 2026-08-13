@@ -67,15 +67,29 @@ enum TranscriptDeliveryService {
 
         guard isAccessibilityGranted,
               let targetApplication,
-              !targetApplication.isTerminated,
-              targetApplication.activate() else {
+              !targetApplication.isTerminated else {
             return .copied
         }
 
-        try? await Task.sleep(for: .milliseconds(250))
+        let insertionError = insertAtFocusedCursor(
+            transcript,
+            processIdentifier: targetApplication.processIdentifier
+        )
+        if TranscriptInsertionDecision.afterAccessibilityResult(insertionError.rawValue) == .inserted {
+            return .pasted
+        }
 
-        guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: 0x09, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil, virtualKey: 0x09, keyDown: false) else {
+        guard targetApplication.activate() else {
+            return .copied
+        }
+        guard await waitUntilFrontmost(targetApplication.processIdentifier) else {
+            return .copied
+        }
+        try? await Task.sleep(for: .milliseconds(80))
+
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {
             return .copied
         }
         keyDown.flags = .maskCommand
@@ -83,5 +97,40 @@ enum TranscriptDeliveryService {
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
         return .pasted
+    }
+
+    private static func insertAtFocusedCursor(
+        _ transcript: String,
+        processIdentifier: pid_t
+    ) -> AXError {
+        let application = AXUIElementCreateApplication(processIdentifier)
+        var focusedValue: CFTypeRef?
+        let focusedError = AXUIElementCopyAttributeValue(
+            application,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedValue
+        )
+        guard focusedError == .success,
+              let focusedValue,
+              CFGetTypeID(focusedValue) == AXUIElementGetTypeID() else {
+            return focusedError == .success ? .failure : focusedError
+        }
+
+        let focusedElement = unsafeBitCast(focusedValue, to: AXUIElement.self)
+        return AXUIElementSetAttributeValue(
+            focusedElement,
+            kAXSelectedTextAttribute as CFString,
+            transcript as CFTypeRef
+        )
+    }
+
+    private static func waitUntilFrontmost(_ processIdentifier: pid_t) async -> Bool {
+        for _ in 0..<20 {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return false
     }
 }

@@ -222,8 +222,8 @@ final class DictationController: ObservableObject {
                 statusText = "Pasted into \(targetApplication?.localizedName ?? "target app")"
             case .copied:
                 statusText = accessibilityGranted
-                    ? "Copied — target app unavailable"
-                    : "Copied — enable Accessibility to auto-paste"
+                    ? "Copied — focused field rejected insertion"
+                    : "Copied — re-enable Accessibility for DictateMac"
             }
         } catch {
             session.metadata.status = .failed

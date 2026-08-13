@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 — 2026-08-13
+
+### Fixed
+
+- Use a real Cmd-V key sequence as the primary Auto-Paste path for Electron and web editors.
+- Stop treating a successful Accessibility attribute call as proof that the target editor changed.
+- Retain direct Accessibility insertion as a fallback when target activation or key-event creation fails.
+
 ## 0.3.0 — 2026-08-13
 
 ### Added

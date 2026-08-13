@@ -76,32 +76,44 @@ enum TranscriptDeliveryService {
             return .targetUnavailable
         }
 
+        if await postPasteShortcut(to: targetApplication) {
+            return .pasteShortcutPosted
+        }
+
         let insertionError = insertAtFocusedCursor(
             transcript,
             processIdentifier: targetApplication.processIdentifier
         )
-        if TranscriptInsertionDecision.afterAccessibilityResult(insertionError.rawValue) == .inserted {
-            return .accessibilityInserted
-        }
+        return TranscriptInsertionDecision.afterAccessibilityResult(insertionError.rawValue) == .inserted
+            ? .accessibilityInserted
+            : .targetUnavailable
+    }
 
+    private static func postPasteShortcut(to targetApplication: NSRunningApplication) async -> Bool {
         guard targetApplication.activate() else {
-            return .targetUnavailable
+            return false
         }
         guard await waitUntilFrontmost(targetApplication.processIdentifier) else {
-            return .targetUnavailable
+            return false
         }
-        try? await Task.sleep(for: .milliseconds(80))
+        try? await Task.sleep(for: .milliseconds(120))
 
-        guard let source = CGEventSource(stateID: .hidSystemState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {
-            return .targetUnavailable
+        guard let source = CGEventSource(stateID: .combinedSessionState),
+              let commandDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
+              let vDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let vUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false),
+              let commandUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) else {
+            return false
         }
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
-        return .pasteShortcutPosted
+
+        commandDown.flags = .maskCommand
+        vDown.flags = .maskCommand
+        vUp.flags = .maskCommand
+        commandUp.flags = []
+        for event in [commandDown, vDown, vUp, commandUp] {
+            event.post(tap: .cghidEventTap)
+        }
+        return true
     }
 
     private static func insertAtFocusedCursor(

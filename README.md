@@ -62,4 +62,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.3.0`: persistent Auto-Paste On/Off, clipboard copy in both modes, permanent audio/transcript/metadata history, hold-Fn push-to-talk, and local German/English transcription.
+Version `0.3.1`: persistent Auto-Paste On/Off, clipboard copy in both modes, permanent audio/transcript/metadata history, hold-Fn push-to-talk, and local German/English transcription.

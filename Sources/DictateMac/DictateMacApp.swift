@@ -9,10 +9,23 @@ struct DictateMacApp: App {
         MenuBarExtra {
             DictationMenu(controller: controller)
         } label: {
-            Image(systemName: controller.isRecording ? "waveform.circle.fill" : "waveform.circle")
+            Image(nsImage: DictatorAssets.menuIcon)
         }
         .menuBarExtraStyle(.window)
     }
+}
+
+private enum DictatorAssets {
+    static let menuIcon: NSImage = {
+        let fallback = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "DICTATOR")!
+        guard let url = Bundle.main.url(forResource: "DICTATOR-menu@2x", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else {
+            return fallback
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }()
 }
 
 private struct DictationMenu: View {
@@ -65,7 +78,7 @@ private struct DictationMenu: View {
             }
             .disabled(controller.accessibilityGranted)
 
-            Button("Quit DictateMac") {
+            Button("Quit DICTATOR") {
                 NSApplication.shared.terminate(nil)
             }
         }

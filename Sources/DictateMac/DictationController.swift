@@ -51,6 +51,9 @@ final class DictationController: ObservableObject {
             self?.handleFnAction(action)
         }
         fnKeyMonitor?.start()
+        if !accessibilityGranted {
+            TranscriptDeliveryService.requestAccessibilityPermission()
+        }
     }
 
     func toggleRecording() {
@@ -218,12 +221,14 @@ final class DictationController: ObservableObject {
 
             refreshAccessibilityPermission()
             switch delivery {
-            case .pasted:
-                statusText = "Pasted into \(targetApplication?.localizedName ?? "target app")"
-            case .copied:
-                statusText = accessibilityGranted
-                    ? "Copied — focused field rejected insertion"
-                    : "Copied — re-enable Accessibility for DictateMac"
+            case .accessibilityInserted:
+                statusText = "Inserted into \(targetApplication?.localizedName ?? "target app")"
+            case .pasteShortcutPosted:
+                statusText = "Paste sent to \(targetApplication?.localizedName ?? "target app")"
+            case .accessibilityDenied:
+                statusText = "Copied — enable Accessibility for DICTATOR"
+            case .targetUnavailable:
+                statusText = "Copied — target field unavailable"
             }
         } catch {
             session.metadata.status = .failed

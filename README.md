@@ -1,15 +1,15 @@
-# DictateMac
+# DICTATOR
 
-Minimal local macOS dictation for German and English. It automatically detects the primary language of each recording; switching languages inside one short recording is not reliably supported in v0.1.0.
+A fun, local macOS dictation app for German and English. It automatically detects the primary language of each recording; switching languages inside one short recording is not reliably supported in v0.1.0.
 
 ## Use
 
-1. Start `DictateMac.app`; a waveform appears in the menu bar.
+1. Start `DICTATOR.app`; a waveform appears in the menu bar.
 2. Grant **Microphone** and **Accessibility** when prompted. Accessibility is required for the global Fn trigger and auto-paste.
 3. Put the cursor in any text field.
 4. Hold **Fn/Globe** while speaking; release it to transcribe and paste. The menu’s **Record/Stop** button remains available as a fallback.
 
-If auto-paste is unavailable, the transcript remains on the clipboard. Click **Enable Accessibility…** in the menu and allow DictateMac under **System Settings → Privacy & Security → Accessibility**.
+If auto-paste is unavailable, the transcript remains on the clipboard. Click **Enable Accessibility…** in the menu and allow DICTATOR under **System Settings → Privacy & Security → Accessibility**.
 
 ## What is stored
 
@@ -46,7 +46,7 @@ git clone https://github.com/eminogrande/DictateMac.git
 cd DictateMac
 swift test
 ./build-app.sh
-open dist/DictateMac.app
+open dist/DICTATOR.app
 ```
 
 `build-app.sh` creates an arm64, ad-hoc-signed app at `dist/DictateMac.app`. WhisperKit is pinned exactly to `1.1.0` in `Package.swift` and `Package.resolved`.
@@ -61,4 +61,4 @@ open dist/DictateMac.app
 
 ## Current status
 
-Version `0.1.2`: hold-Fn push-to-talk, focused-field auto-insertion, menu-bar fallback, durable WAV archive, local German/English transcription, and clipboard fallback are implemented.
+Version `0.2.0`: DICTATOR branding, stable Accessibility identity across updates, focused-field auto-insertion, hold-Fn push-to-talk, local German/English transcription, and clipboard fallback.

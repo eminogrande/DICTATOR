@@ -19,8 +19,10 @@ public enum DictationStatus: String, Codable, Sendable {
 }
 
 public enum TranscriptDelivery: String, Codable, Sendable {
-    case pasted
-    case copied
+    case accessibilityInserted
+    case pasteShortcutPosted
+    case accessibilityDenied
+    case targetUnavailable
 }
 
 public struct DictationMetadata: Codable, Equatable, Sendable {

@@ -65,10 +65,11 @@ enum TranscriptDeliveryService {
         pasteboard.clearContents()
         pasteboard.setString(transcript, forType: .string)
 
-        guard isAccessibilityGranted,
-              let targetApplication,
-              !targetApplication.isTerminated else {
-            return .copied
+        guard isAccessibilityGranted else {
+            return .accessibilityDenied
+        }
+        guard let targetApplication, !targetApplication.isTerminated else {
+            return .targetUnavailable
         }
 
         let insertionError = insertAtFocusedCursor(
@@ -76,27 +77,27 @@ enum TranscriptDeliveryService {
             processIdentifier: targetApplication.processIdentifier
         )
         if TranscriptInsertionDecision.afterAccessibilityResult(insertionError.rawValue) == .inserted {
-            return .pasted
+            return .accessibilityInserted
         }
 
         guard targetApplication.activate() else {
-            return .copied
+            return .targetUnavailable
         }
         guard await waitUntilFrontmost(targetApplication.processIdentifier) else {
-            return .copied
+            return .targetUnavailable
         }
         try? await Task.sleep(for: .milliseconds(80))
 
         guard let source = CGEventSource(stateID: .hidSystemState),
               let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {
-            return .copied
+            return .targetUnavailable
         }
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
-        return .pasted
+        return .pasteShortcutPosted
     }
 
     private static func insertAtFocusedCursor(

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 — 2026-08-13
+
+### Fixed
+
+- Preserve the same macOS Accessibility identity across local rebuilds with a stable designated signing requirement.
+- Keep direct focused-field insertion and verified Cmd-V fallback.
+
+### Changed
+
+- Rename the visible app to **DICTATOR** while preserving the bundle ID and existing archive.
+- Add a stern microphone with peaked cap and moustache as the app and menu-bar icon.
+
 ## 0.1.2 — 2026-08-13
 
 ### Fixed

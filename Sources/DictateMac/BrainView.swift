@@ -79,6 +79,8 @@ struct BrainView: View {
                 Button("Add Text", systemImage: "text.badge.plus") { showsTextImporter = true }
                 Button("Import Export or Files", systemImage: "square.and.arrow.down") { controller.importFiles() }
                 Button("Sync Hermes Memory", systemImage: "brain") { controller.syncHermesMemory() }
+                Button("Update Repositories", systemImage: "arrow.clockwise") { controller.updateManagedRepositories() }
+                    .disabled(controller.isBusy)
                 Spacer()
             }
         }

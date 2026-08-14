@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 — 2026-08-14
+
+- Add local multilingual hybrid Brain retrieval with source-backed semantic indexes and canonical evidence packing.
+- Remove generic lexical-overlap `RELATED` edges from the durable graph.
+- Add the ten most active `nuri-com` repositories as a managed corpus with exact branch, commit, visibility, and source provenance.
+- Check managed repositories at most once every 24 hours when Brain opens; update only changed commits and remove stale files/functions.
+- Add an explicit **Update Repositories** control and isolate failures per repository.
+- Decode fractional hybrid ranking scores in the native Brain UI.
+- Strip credential-like environment variables from Swift build subprocesses so package-plugin caches cannot capture API keys.
+
+### Rationale
+
+The Brain now returns compact original evidence instead of a lexical graph hairball. Repository refresh stays outside dictation and preserves the last valid graph when a clone, model, or repository fails.
+
 ## 0.8.2 — 2026-08-14
 
 - Give the waveform and timecode a fixed 88-point header that cannot overlap transcript content.

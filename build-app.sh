@@ -9,7 +9,13 @@ BRAIN="$CONTENTS/Resources/Brain"
 REQUIREMENT='=designated => identifier "de.emin.DictateMac"'
 
 cd "$ROOT"
-swift build -c release --product DictateMac
+SECRET_ENV=()
+while IFS='=' read -r name _; do
+  case "$name" in
+    *KEY*|*TOKEN*|*SECRET*|*PASSWORD*|*CREDENTIAL*) SECRET_ENV+=("-u" "$name") ;;
+  esac
+done < <(/usr/bin/env)
+/usr/bin/env "${SECRET_ENV[@]}" swift build -c release --product DictateMac
 (cd "$BRAIN_ROOT" && npm run build)
 
 rm -rf "$APP"

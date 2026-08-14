@@ -38,7 +38,9 @@ Use **Open Archive** in the menu to open saved dictations.
 
 ## DICTATOR Brain
 
-Choose **Open Brain…** to browse recordings, transcripts, agent sessions, Hermes memories, imported documents, repositories, source files, and functions, or search them together. Add direct text, import `.txt`, `.md`, `.json`, or `.jsonl` exports, synchronize Hermes memory, or clone/update a GitHub repository. Provenance, roles, session order, timestamps, paths, and repository contents remain attached to their sources. The canonical graph lives under `~/Library/Application Support/DictateMac/Brain/`.
+Choose **Open Brain…** to browse recordings, transcripts, agent sessions, Hermes memories, imported documents, repositories, source files, and functions, or search them together. Search combines lexical and local multilingual embeddings, then returns deduplicated canonical sources. Add direct text, import `.txt`, `.md`, `.json`, or `.jsonl` exports, synchronize Hermes memory, or clone/update a GitHub repository. Provenance, roles, session order, timestamps, paths, branches, and commit SHAs remain attached to their sources. The canonical graph lives under `~/Library/Application Support/DictateMac/Brain/`.
+
+Brain manages a deterministic corpus of the ten most active nonarchived, nonfork `nuri-com` repositories measured over 90 days. Opening Brain checks at most once every 24 hours. **Update Repositories** checks immediately. Only changed default-branch commits are reindexed; deleted or renamed files and functions are removed. Repository failures are isolated and never block dictation.
 
 ### Hermes Agent compatibility
 
@@ -53,7 +55,7 @@ hermes mcp add nuanced-brain \
 hermes mcp test nuanced-brain
 ```
 
-Brain answers must cite the returned source path and say when evidence is missing. Search is currently lexical: German/English paraphrases may require alternate queries until multilingual hybrid retrieval is added.
+Brain answers must cite the returned source path and say when evidence is missing. Ollama embeddings are optional and fail open to lexical retrieval.
 
 ## Optional Brain-enhanced transcripts
 
@@ -93,4 +95,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.8.2`: fixed waveform header, separate full-height growing transcript viewport, explicit local processing phases, microphone + Mac meeting audio, grounded corrections, structured agent/Hermes imports, deadlock-safe Brain browsing, and a Hermes-compatible memory provider.
+Version `0.9.0`: verified dictation behavior plus multilingual hybrid Brain retrieval, source-backed semantic indexes, and incremental daily/manual managed-repository updates.

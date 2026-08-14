@@ -15,8 +15,15 @@ final class BrainController: ObservableObject {
 
     func refresh() {
         Task {
+            await updateManagedRepositories(force: false, reportResult: false)
             await runStats()
             await loadHome()
+        }
+    }
+
+    func updateManagedRepositories() {
+        Task {
+            await updateManagedRepositories(force: true, reportResult: true)
         }
     }
 
@@ -154,6 +161,20 @@ final class BrainController: ObservableObject {
             let data = try await BrainSidecar.run(["stats"])
             self.stats = try JSONDecoder().decode(BrainStats.self, from: data)
             self.status = "\(self.stats?.nodes ?? 0) nodes · \(self.stats?.edges ?? 0) connections"
+        }
+    }
+
+    private func updateManagedRepositories(force: Bool, reportResult: Bool) async {
+        await perform(force ? "Updating repositories…" : "Checking repositories…") {
+            let arguments = force ? ["managed-repos-refresh", "--force"] : ["managed-repos-refresh"]
+            let data = try await BrainSidecar.run(arguments)
+            let response = try JSONDecoder().decode(BrainManagedRefreshResponse.self, from: data)
+            if reportResult {
+                let value = response.repositories
+                let statsData = try await BrainSidecar.run(["stats"])
+                self.stats = try JSONDecoder().decode(BrainStats.self, from: statsData)
+                self.status = "Updated \(value.updated) · unchanged \(value.unchanged) · failed \(value.failed)"
+            }
         }
     }
 

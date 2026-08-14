@@ -4,10 +4,10 @@ import XCTest
 
 final class BrainModelsTests: XCTestCase {
     func testSearchResponseDecodesTokenBoundedResults() throws {
-        let data = Data(#"{"query":"font size","results":[{"id":"file:1","type":"file","label":"Design.swift","path":"/repo/Design.swift","score":7,"excerpt":"minimumFontSize = 16","related":[]}]}"#.utf8)
+        let data = Data(#"{"query":"font size","results":[{"id":"file:1","type":"file","label":"Design.swift","path":"/repo/Design.swift","score":0.0325,"excerpt":"minimumFontSize = 16","related":[]}]}"#.utf8)
         let response = try JSONDecoder().decode(BrainSearchResponse.self, from: data)
         XCTAssertEqual(response.results.first?.label, "Design.swift")
-        XCTAssertEqual(response.results.first?.score, 7)
+        XCTAssertEqual(response.results.first?.score, 0.0325)
     }
 
 
@@ -17,5 +17,13 @@ final class BrainModelsTests: XCTestCase {
         XCTAssertEqual(BrainBrowserSection.all.browseType, "all")
         XCTAssertEqual(BrainBrowserSection.recording.browseType, "recording")
         XCTAssertFalse(BrainBrowserSection.sidebarSections.contains(.search))
+    }
+
+    func testManagedRepositoryRefreshDecodesSidecarResult() throws {
+        let data = Data(#"{"repositories":{"due":true,"checked":10,"updated":2,"unchanged":7,"failed":1,"entries":[]},"embeddings":null}"#.utf8)
+        let response = try JSONDecoder().decode(BrainManagedRefreshResponse.self, from: data)
+        XCTAssertEqual(response.repositories.checked, 10)
+        XCTAssertEqual(response.repositories.updated, 2)
+        XCTAssertEqual(response.repositories.failed, 1)
     }
 }

@@ -72,7 +72,7 @@ public struct BrainSearchItem: Codable, Equatable, Sendable, Identifiable {
     public let type: String
     public let label: String
     public let path: String?
-    public let score: Int
+    public let score: Double
     public let excerpt: String
     public let related: [BrainRelatedItem]
 }
@@ -91,4 +91,16 @@ public struct BrainStats: Codable, Equatable, Sendable {
     public let language: String?
     public let files: Int?
     public let functions: Int?
+}
+
+public struct BrainManagedRefresh: Codable, Equatable, Sendable {
+    public let due: Bool
+    public let checked: Int
+    public let updated: Int
+    public let unchanged: Int
+    public let failed: Int
+}
+
+public struct BrainManagedRefreshResponse: Codable, Equatable, Sendable {
+    public let repositories: BrainManagedRefresh
 }

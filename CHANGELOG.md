@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 — 2026-08-14
+
+- Keep local transcription visibly alive with a non-activating floating HUD above the current app.
+- Show immediate dots, then character-by-character type/delete activity sourced only from the previous real transcript.
+- Keep keyboard focus in the original target app and hide the HUD on completion or failure.
+
 ## 0.4.0 — 2026-08-14
 
 - Integrate Nuanced Brain directly into DICTATOR with native search, GitHub import, graph statistics, source links, and visualization.

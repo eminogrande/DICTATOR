@@ -68,4 +68,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.4.0`: integrated Nuanced Brain search/import/visualization, flat verified archive migration, meaningful local filenames/metadata, and source-backed typing animation during local transcription.
+Version `0.4.1`: integrated Nuanced Brain search/import/visualization, flat verified archive migration, meaningful local filenames/metadata, and an always-visible non-activating transcription HUD with source-backed type/delete animation.

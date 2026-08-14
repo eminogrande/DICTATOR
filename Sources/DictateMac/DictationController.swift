@@ -8,6 +8,7 @@ final class DictationController: ObservableObject {
     @Published private(set) var statusText = "Loading/downloading large-v3-turbo…"
     @Published private(set) var latestTranscript = ""
     @Published private(set) var transcriptionPreview = ""
+    @Published private(set) var isTranscribing = false
     @Published private(set) var isRecording = false
     @Published private(set) var isBusy = true
     @Published private(set) var accessibilityGranted = TranscriptDeliveryService.isAccessibilityGranted
@@ -209,6 +210,7 @@ final class DictationController: ObservableObject {
 
     private func finishDictation() async {
         guard var session = currentSession, let archive else {
+            stopProgressAnimation()
             statusText = "Session unavailable"
             isBusy = false
             operationInProgress = false
@@ -272,6 +274,7 @@ final class DictationController: ObservableObject {
     }
     private func startProgressAnimation() {
         progressTask?.cancel()
+        isTranscribing = true
         let frames = TranscriptionProgressFrames.make(from: latestTranscript)
         transcriptionPreview = frames.first ?? "..."
         progressTask = Task { [weak self] in
@@ -280,7 +283,7 @@ final class DictationController: ObservableObject {
                 guard let self else { return }
                 self.transcriptionPreview = frames[index % frames.count]
                 index += 1
-                try? await Task.sleep(nanoseconds: 180_000_000)
+                try? await Task.sleep(nanoseconds: 80_000_000)
             }
         }
     }
@@ -288,6 +291,7 @@ final class DictationController: ObservableObject {
     private func stopProgressAnimation() {
         progressTask?.cancel()
         progressTask = nil
+        isTranscribing = false
         transcriptionPreview = ""
     }
 

@@ -36,15 +36,16 @@ public struct BrainStats: Codable, Equatable, Sendable {
 public enum TranscriptionProgressFrames {
     public static func make(from previousTranscript: String) -> [String] {
         let words = previousTranscript.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-        guard !words.isEmpty else { return [".", "..", "...", "....", "....."] }
-        let excerpt = Array(words.suffix(10))
-        var frames = [".", "..", "..."]
-        for count in 1...excerpt.count {
-            frames.append("“" + excerpt.prefix(count).joined(separator: " ") + "”")
+        guard !words.isEmpty else { return [".", "..", "...", "....", ".....", "......"] }
+
+        let characters = Array(words.suffix(10).joined(separator: " ").prefix(96))
+        var frames = [".", "..", "...", "....", ".....", "......"]
+        for count in 1...characters.count {
+            frames.append("“" + String(characters.prefix(count)) + "”")
         }
-        if excerpt.count > 3 {
-            for count in stride(from: excerpt.count - 1, through: max(2, excerpt.count / 2), by: -1) {
-                frames.append("“" + excerpt.prefix(count).joined(separator: " ") + "”")
+        if characters.count > 6 {
+            for count in stride(from: characters.count - 1, through: max(3, characters.count / 2), by: -1) {
+                frames.append("“" + String(characters.prefix(count)) + "”")
             }
         }
         frames.append("...")

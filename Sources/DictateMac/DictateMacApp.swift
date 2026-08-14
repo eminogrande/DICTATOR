@@ -3,8 +3,15 @@ import SwiftUI
 
 @main
 struct DictateMacApp: App {
-    @StateObject private var controller = DictationController()
+    @StateObject private var controller: DictationController
     @StateObject private var brainController = BrainController()
+    private let transcriptionHUD: TranscriptionHUDController
+
+    init() {
+        let controller = DictationController()
+        _controller = StateObject(wrappedValue: controller)
+        transcriptionHUD = TranscriptionHUDController(controller: controller)
+    }
 
     var body: some Scene {
         MenuBarExtra {

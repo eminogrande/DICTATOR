@@ -10,15 +10,19 @@ final class BrainModelsTests: XCTestCase {
         XCTAssertEqual(response.results.first?.score, 7)
     }
 
-    func testProgressFramesUseOnlyPreviousTranscriptWords() {
+    func testProgressFramesTypeAndDeleteOnlyPreviousTranscriptText() {
         let source = "minimum font size should always be sixteen pixels"
         let frames = TranscriptionProgressFrames.make(from: source)
         XCTAssertTrue(frames.contains("..."))
+        XCTAssertTrue(frames.contains("“m”"))
         XCTAssertTrue(frames.contains { $0.contains("minimum font size") })
-        let allowed = Set(source.split(separator: " ").map(String.init))
-        for frame in frames where frame.contains("“") {
-            let words = frame.trimmingCharacters(in: CharacterSet(charactersIn: "“”")).split(separator: " ").map(String.init)
-            XCTAssertTrue(words.allSatisfy(allowed.contains))
-        }
+
+        let fragments = frames
+            .filter { $0.hasPrefix("“") }
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "“”")) }
+        XCTAssertTrue(fragments.allSatisfy(source.contains))
+
+        let longestIndex = fragments.indices.max(by: { fragments[$0].count < fragments[$1].count })!
+        XCTAssertTrue(fragments[longestIndex...].dropFirst().contains { $0.count < fragments[longestIndex].count })
     }
 }

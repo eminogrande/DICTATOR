@@ -77,7 +77,7 @@ Requires macOS 14+, Apple Silicon, Xcode 16+, and Swift 6.
 ```bash
 git clone https://github.com/eminogrande/DictateMac.git
 cd DictateMac
-swift test
+./test.sh
 ./build-app.sh
 open dist/DICTATOR.app
 ```

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 — 2026-08-14
+
+- Integrate Nuanced Brain directly into DICTATOR with native search, GitHub import, graph statistics, source links, and visualization.
+- Bundle Node and the Nuanced engine inside the signed app; no separate MCP installation is required for the UI.
+- Store recordings as matching flat WAV/TXT/JSON sets with sequence, local timestamp, headline, summary, and keywords.
+- Migrate legacy folders by copy, byte verification, metadata rewrite, then removal; decode historical `delivery: copied` safely.
+- Animate local transcription with dots and type/delete frames sourced only from the previous real transcript.
+- Keep numeric preferences such as `16` searchable and replace stale archive graph nodes on refresh.
+
 ## 0.3.1 — 2026-08-13
 
 ### Fixed

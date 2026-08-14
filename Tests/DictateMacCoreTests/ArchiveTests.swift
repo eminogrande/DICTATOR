@@ -40,6 +40,11 @@ final class ArchiveTests: XCTestCase {
         XCTAssertTrue(String(decoding: encoded, as: UTF8.self).contains("large-v3_turbo"))
     }
 
+    func testLegacyCopiedDeliveryDecodesAsClipboardOnly() throws {
+        let data = Data(#"{"sessionID":"legacy","startedAt":"2026-08-13T15:50:28.412Z","model":"large-v3_turbo","audioFilename":"audio.wav","transcriptFilename":"transcript.txt","status":"completed","delivery":"copied"}"#.utf8)
+        XCTAssertEqual(try MetadataCodec.decode(data).delivery, .clipboardOnly)
+    }
+
     func testTranscriptCleanupCollapsesWhitespace() {
         let raw = "  Hallo   world\n\nThis\tis English.  "
 

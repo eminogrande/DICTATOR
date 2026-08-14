@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct DictateMacApp: App {
     @StateObject private var controller = DictationController()
+    @StateObject private var brainController = BrainController()
 
     var body: some Scene {
         MenuBarExtra {
@@ -12,6 +13,11 @@ struct DictateMacApp: App {
             Image(nsImage: DictatorAssets.menuIcon)
         }
         .menuBarExtraStyle(.window)
+
+        Window("DICTATOR Brain", id: "brain") {
+            BrainView(controller: brainController)
+        }
+        .defaultSize(width: 980, height: 680)
     }
 }
 
@@ -30,6 +36,7 @@ private enum DictatorAssets {
 
 private struct DictationMenu: View {
     @ObservedObject var controller: DictationController
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -40,6 +47,14 @@ private struct DictationMenu: View {
                 }
                 Text(controller.statusText)
                     .font(.headline)
+            }
+
+            if !controller.transcriptionPreview.isEmpty {
+                Text(controller.transcriptionPreview)
+                    .font(.body.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .contentTransition(.numericText())
             }
 
             Button(controller.recordButtonTitle) {
@@ -73,6 +88,11 @@ private struct DictationMenu: View {
             }
 
             Divider()
+
+            Button("Open Brain…") {
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                openWindow(id: "brain")
+            }
 
             Button("Open Archive") {
                 controller.openArchive()

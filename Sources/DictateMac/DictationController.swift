@@ -7,6 +7,7 @@ import Foundation
 final class DictationController: ObservableObject {
     @Published private(set) var statusText = "Loading/downloading large-v3-turbo…"
     @Published private(set) var latestTranscript = ""
+    @Published private(set) var transcriptionPreview = ""
     @Published private(set) var isRecording = false
     @Published private(set) var isBusy = true
     @Published private(set) var accessibilityGranted = TranscriptDeliveryService.isAccessibilityGranted
@@ -30,6 +31,7 @@ final class DictationController: ObservableObject {
     private var fnKeyMonitor: FnKeyMonitor?
     private var recordingStartedByFn = false
     private var fnReleasedDuringStartup = false
+    private var progressTask: Task<Void, Never>?
 
     var recordButtonTitle: String {
         isRecording ? "Stop" : "Record"
@@ -198,6 +200,7 @@ final class DictationController: ObservableObject {
         isBusy = true
         operationInProgress = true
         statusText = "Transcribing locally…"
+        startProgressAnimation()
 
         Task {
             await finishDictation()
@@ -222,7 +225,8 @@ final class DictationController: ObservableObject {
                 throw DictationError.emptyTranscript
             }
 
-            try archive.writeTranscript(transcript, for: session)
+            session = try archive.nameAndWriteTranscript(transcript, for: session)
+            currentSession = session
             latestTranscript = transcript
             let delivery = await TranscriptDeliveryService.deliver(
                 transcript,
@@ -235,8 +239,9 @@ final class DictationController: ObservableObject {
             session.metadata.delivery = delivery
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
             session.metadata.error = nil
-            try archive.writeMetadata(for: session)
+            try archive.complete(session)
 
+            stopProgressAnimation()
             refreshAccessibilityPermission()
             switch delivery {
             case .accessibilityInserted:
@@ -255,14 +260,37 @@ final class DictationController: ObservableObject {
             session.metadata.completedAt = Date()
             session.metadata.error = error.localizedDescription
             try? archive.writeMetadata(for: session)
+            stopProgressAnimation()
             statusText = "Transcription failed: \(error.localizedDescription)"
         }
 
+        stopProgressAnimation()
         currentSession = nil
         targetApplication = nil
         isBusy = false
         operationInProgress = false
     }
+    private func startProgressAnimation() {
+        progressTask?.cancel()
+        let frames = TranscriptionProgressFrames.make(from: latestTranscript)
+        transcriptionPreview = frames.first ?? "..."
+        progressTask = Task { [weak self] in
+            var index = 0
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.transcriptionPreview = frames[index % frames.count]
+                index += 1
+                try? await Task.sleep(nanoseconds: 180_000_000)
+            }
+        }
+    }
+
+    private func stopProgressAnimation() {
+        progressTask?.cancel()
+        progressTask = nil
+        transcriptionPreview = ""
+    }
+
 }
 
 private enum DictationError: LocalizedError {

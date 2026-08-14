@@ -14,14 +14,16 @@ If auto-paste is unavailable, the transcript remains on the clipboard. Click **E
 
 ## What is stored
 
-Every attempt is kept permanently. Nothing is auto-deleted. Each session gets its own folder:
+Every attempt is kept permanently. Nothing is auto-deleted. Completed recordings use one flat archive with matching names:
 
 ```text
-~/Library/Application Support/DictateMac/Dictations/<UTC timestamp>/
-├── audio.wav
-├── transcript.txt
-└── metadata.json
+~/Library/Application Support/DictateMac/Dictations/
+000001_2026-08-14_12-30_short-headline.wav
+000001_2026-08-14_12-30_short-headline.txt
+000001_2026-08-14_12-30_short-headline.json
 ```
+
+Legacy folders migrate only after verified copies exist. `graph.json` and `INDEX.md` provide a local recording index.
 
 The model cache lives under:
 
@@ -30,6 +32,10 @@ The model cache lives under:
 ```
 
 Use **Open Archive** in the menu to open saved dictations.
+
+## DICTATOR Brain
+
+Choose **Open Brain…** to search recordings, transcripts, prompts, source files, and functions together. Paste a GitHub repository URL to clone/update and index it locally. The app bundles the Nuanced Brain runtime, shows source-backed results, and visualizes the connected result subgraph. The graph lives under `~/Library/Application Support/DictateMac/Brain/`.
 
 ## Privacy
 
@@ -62,4 +68,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.3.1`: persistent Auto-Paste On/Off, clipboard copy in both modes, permanent audio/transcript/metadata history, hold-Fn push-to-talk, and local German/English transcription.
+Version `0.4.0`: integrated Nuanced Brain search/import/visualization, flat verified archive migration, meaningful local filenames/metadata, and source-backed typing animation during local transcription.

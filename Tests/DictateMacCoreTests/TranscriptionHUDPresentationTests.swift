@@ -2,19 +2,17 @@ import XCTest
 @testable import DictateMacCore
 
 final class TranscriptionHUDPresentationTests: XCTestCase {
-    func testShowsUsefulRecallBeforeFirstWord() {
+    func testStartsWithoutRecallOrPlaceholderCopy() {
         let presentation = TranscriptionHUDPresentation.make(
             isVisible: true,
-            title: "Zuletzt wichtig",
-            recall: "DICTATOR: Streaming geplant. Nächster Schritt: echter Live-Text.",
+            title: "",
             confirmed: "",
             provisional: ""
         )
         XCTAssertEqual(
             presentation,
             TranscriptionHUDPresentation(
-                title: "Zuletzt wichtig",
-                recall: "DICTATOR: Streaming geplant. Nächster Schritt: echter Live-Text.",
+                title: "",
                 confirmed: "",
                 provisional: ""
             )
@@ -25,8 +23,7 @@ final class TranscriptionHUDPresentationTests: XCTestCase {
     func testShowsConfirmedAndProvisionalLiveText() {
         let presentation = TranscriptionHUDPresentation.make(
             isVisible: true,
-            title: "Live transcript",
-            recall: "Recent context",
+            title: "",
             confirmed: "This part is stable.",
             provisional: "This may still change"
         )
@@ -35,17 +32,14 @@ final class TranscriptionHUDPresentationTests: XCTestCase {
         XCTAssertEqual(presentation?.provisional, "This may still change")
     }
 
-    func testEmptyRecallUsesUsefulLoadingCopy() {
-        XCTAssertEqual(
-            TranscriptionHUDPresentation.make(
-                isVisible: true,
-                title: "Zuletzt wichtig",
-                recall: "",
-                confirmed: "",
-                provisional: ""
-            )?.recall,
-            "Loading useful recent context…"
+    func testPreservesExplicitProcessingPhase() {
+        let presentation = TranscriptionHUDPresentation.make(
+            isVisible: true,
+            title: "Creating final transcript",
+            confirmed: "Complete spoken text",
+            provisional: ""
         )
+        XCTAssertEqual(presentation?.title, "Creating final transcript")
     }
 
     func testIdleHasNoHUD() {
@@ -53,7 +47,6 @@ final class TranscriptionHUDPresentationTests: XCTestCase {
             TranscriptionHUDPresentation.make(
                 isVisible: false,
                 title: "stale",
-                recall: "stale",
                 confirmed: "stale",
                 provisional: "stale"
             )

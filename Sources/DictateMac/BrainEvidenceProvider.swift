@@ -8,22 +8,9 @@ struct BrainEvidenceProvider {
         var items: [BrainSearchItem] = []
         if let data = try? await BrainSidecar.run(["search", query]),
            let response = try? JSONDecoder().decode(BrainSearchResponse.self, from: data) {
-            items.append(contentsOf: response.results.prefix(5))
+            items.append(contentsOf: response.results.prefix(8))
         }
-        items.append(contentsOf: await recentItems(limit: 4))
         return boundedEvidence(from: items)
-    }
-
-    func recentEvidence(limit: Int = 10) async -> [BrainEvidenceItem] {
-        boundedEvidence(from: await recentItems(limit: limit), limit: limit)
-    }
-
-    private func recentItems(limit: Int) async -> [BrainSearchItem] {
-        guard let data = try? await BrainSidecar.run(["browse", "recording", String(limit)]),
-              let response = try? JSONDecoder().decode(BrainSearchResponse.self, from: data) else {
-            return []
-        }
-        return response.results
     }
 
     private func boundedEvidence(from items: [BrainSearchItem], limit: Int = 8) -> [BrainEvidenceItem] {

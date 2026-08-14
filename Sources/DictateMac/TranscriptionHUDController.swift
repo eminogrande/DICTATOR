@@ -23,7 +23,6 @@ final class TranscriptionHUDController {
         let presentation = TranscriptionHUDPresentation.make(
             isVisible: controller.isTranscribing,
             title: controller.transcriptionHUDTitle,
-            recall: controller.transcriptionPreview,
             confirmed: controller.liveConfirmedText,
             provisional: controller.liveProvisionalText,
             audio: controller.liveAudioProgress
@@ -73,30 +72,36 @@ final class TranscriptionHUDController {
     }
 
     private func desiredHeight(for presentation: TranscriptionHUDPresentation) -> CGFloat {
-        let text = presentation.hasTranscript
-            ? [presentation.confirmed, presentation.provisional].filter { !$0.isEmpty }.joined(separator: "\n")
-            : presentation.recall
-        let font = NSFont.systemFont(ofSize: presentation.hasTranscript ? 22 : 20)
+        let text = [presentation.confirmed, presentation.provisional]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        let font = NSFont.systemFont(ofSize: 22)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 5
         let bounds = (text as NSString).boundingRect(
             with: NSSize(width: 632, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font]
+            attributes: [.font: font, .paragraphStyle: paragraph]
         )
-        let naturalHeight = ceil(bounds.height) + 92 + (presentation.audio.audioDuration > 0 ? 88 : 0)
+
         let screenHeight = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 900
-        return min(max(180, naturalHeight), screenHeight * 0.72)
+        return TranscriptionHUDLayout.height(
+            textHeight: ceil(bounds.height),
+            hasAudio: presentation.audio.audioDuration > 0,
+            hasTitle: !presentation.title.isEmpty,
+            screenHeight: screenHeight
+        )
     }
 }
 
 @MainActor
 private final class TranscriptionHUDModel: ObservableObject {
     @Published var presentation = TranscriptionHUDPresentation(
-        title: "Zuletzt wichtig",
-        recall: "Loading useful recent context…",
+        title: "",
         confirmed: "",
         provisional: ""
     )
-    @Published var height: CGFloat = 180
+    @Published var height: CGFloat = 128
 }
 
 private struct TranscriptionHUDView: View {
@@ -109,20 +114,17 @@ private struct TranscriptionHUDView: View {
                     .frame(height: 70)
             }
 
-            Text(model.presentation.title)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(.primary)
+            if !model.presentation.title.isEmpty {
+                Text(model.presentation.title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.primary)
+            }
 
             if model.presentation.hasTranscript {
                 LiveTranscriptContent(
                     confirmed: model.presentation.confirmed,
                     provisional: model.presentation.provisional
                 )
-            } else {
-                Text(model.presentation.recall)
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .lineSpacing(5)
             }
         }
         .padding(24)
@@ -133,7 +135,7 @@ private struct TranscriptionHUDView: View {
                 .stroke(.white.opacity(0.16), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(model.presentation.hasTranscript ? "Live transcript" : "Useful recent context")
+        .accessibilityLabel("Live transcript")
     }
 }
 

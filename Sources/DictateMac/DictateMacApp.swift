@@ -132,13 +132,6 @@ private struct DictationMenu: View {
                         .font(.system(size: 17, weight: .semibold))
                 }
 
-                if !controller.transcriptionPreview.isEmpty {
-                    Text(controller.transcriptionPreview)
-                        .font(.system(size: 17))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                }
-
                 Button(controller.recordButtonTitle) {
                     controller.toggleRecording()
                 }

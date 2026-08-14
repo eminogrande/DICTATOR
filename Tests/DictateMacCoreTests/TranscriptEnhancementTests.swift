@@ -154,11 +154,4 @@ final class TranscriptEnhancementTests: XCTestCase {
             )
         )
     }
-
-    func testRecentFocusUsesDistinctBoundedHeadlines() {
-        XCTAssertEqual(
-            RecentWorkSummary.make(headlines: ["Brain browser", "Brain browser", "Menu fix", "Archive migration"]),
-            "Recent focus: Brain browser · Menu fix · Archive migration"
-        )
-    }
 }

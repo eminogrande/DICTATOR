@@ -144,17 +144,3 @@ public enum TranscriptEnhancementContract {
         return previous[right.count]
     }
 }
-
-public enum RecentWorkSummary {
-    public static func make(headlines: [String]) -> String {
-        var seen: Set<String> = []
-        let distinct = headlines.compactMap { raw -> String? in
-            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = value.lowercased()
-            guard !value.isEmpty, seen.insert(key).inserted else { return nil }
-            return value
-        }.prefix(3)
-        guard !distinct.isEmpty else { return "Reading recent Brain context…" }
-        return "Recent focus: " + distinct.joined(separator: " · ")
-    }
-}

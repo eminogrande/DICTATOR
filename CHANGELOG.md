@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.1 — 2026-08-14
+
+- Remove the Recent Focus/recall card from the recording HUD and menu.
+- Grow the HUD downward with measured transcript content until 36 points before the visible screen edge; scroll only after that limit.
+- Include SwiftUI line spacing in AppKit height measurement so the panel no longer underestimates long text.
+- Remove the redundant recent-recordings evidence pass from optional transcript correction.
+- Disable optional correction after an OpenRouter 401/403 instead of repeating an unavailable network path on every dictation.
+
+### Rationale
+
+The recording HUD should contain only real audio, transcript, and processing state. The complete file-based Whisper pass remains canonical even when the live transcript already looks finished.
+
 ## 0.8.0 — 2026-08-14
 
 - Add a real white live waveform from WhisperKit's microphone-energy buffers; no generated or decorative animation.

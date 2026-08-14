@@ -57,7 +57,7 @@ Brain answers must cite the returned source path and say when evidence is missin
 
 ## Optional Brain-enhanced transcripts
 
-Expand **Brain-enhanced transcript** in the menu, save an OpenRouter API key, choose a model, then enable **Correct names and spelling**. The default model is `~deepseek/deepseek-v4-flash-latest`. Before the first live word, the HUD can show a short recent-work recall card. After the final local Whisper pass, the model may correct only obvious recognition mistakes. Every changed word requires model confidence ≥0.90 and must pass a strict local edit-distance gate. Repository links and recall remain separate under **Things worth adding**; only the corrected spoken text is inserted. Any API, timeout, decoding, confidence, or validation failure returns the exact local transcript.
+Expand **Brain-enhanced transcript** in the menu, save an OpenRouter API key, choose a model, then enable **Correct names and spelling**. The default model is `~deepseek/deepseek-v4-flash-latest`. After the final local Whisper pass, the model may correct only obvious recognition mistakes. Every changed word requires model confidence ≥0.90 and must pass a strict local edit-distance gate. Repository links and recall remain separate from the spoken transcript. Authentication failures disable this optional path so local delivery remains fast and available.
 
 ## Privacy
 
@@ -93,4 +93,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.8.0`: real waveform and decoder position, stable growing live HUD, microphone + Mac meeting audio, visible local processing phases, grounded corrections, structured agent/Hermes imports, deadlock-safe Brain browsing, and a Hermes-compatible memory provider.
+Version `0.8.1`: real waveform and decoder position, full-height growing live HUD without Recent Focus copy, microphone + Mac meeting audio, visible local processing phases, grounded corrections, structured agent/Hermes imports, deadlock-safe Brain browsing, and a Hermes-compatible memory provider.

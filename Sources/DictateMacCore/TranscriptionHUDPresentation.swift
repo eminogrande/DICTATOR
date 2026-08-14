@@ -1,13 +1,11 @@
 public struct TranscriptionHUDPresentation: Equatable, Sendable {
     public let title: String
-    public let recall: String
     public let confirmed: String
     public let provisional: String
     public let audio: LiveAudioProgress
 
     public init(
         title: String,
-        recall: String,
         confirmed: String,
         provisional: String,
         audio: LiveAudioProgress = LiveAudioProgress(
@@ -17,7 +15,6 @@ public struct TranscriptionHUDPresentation: Equatable, Sendable {
         )
     ) {
         self.title = title
-        self.recall = recall
         self.confirmed = confirmed
         self.provisional = provisional
         self.audio = audio
@@ -30,7 +27,6 @@ public struct TranscriptionHUDPresentation: Equatable, Sendable {
     public static func make(
         isVisible: Bool,
         title: String,
-        recall: String,
         confirmed: String,
         provisional: String,
         audio: LiveAudioProgress = LiveAudioProgress(
@@ -42,7 +38,6 @@ public struct TranscriptionHUDPresentation: Equatable, Sendable {
         guard isVisible else { return nil }
         return TranscriptionHUDPresentation(
             title: title,
-            recall: recall.isEmpty ? "Loading useful recent context…" : recall,
             confirmed: confirmed,
             provisional: provisional,
             audio: audio

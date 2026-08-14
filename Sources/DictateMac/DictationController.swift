@@ -7,8 +7,7 @@ import Foundation
 final class DictationController: ObservableObject {
     @Published private(set) var statusText = "Loading/downloading large-v3-turbo…"
     @Published private(set) var latestTranscript = ""
-    @Published private(set) var transcriptionPreview = ""
-    @Published private(set) var transcriptionHUDTitle = "Zuletzt wichtig"
+    @Published private(set) var transcriptionHUDTitle = ""
     @Published private(set) var liveConfirmedText = ""
     @Published private(set) var liveProvisionalText = ""
     @Published private(set) var liveAudioProgress = LiveAudioProgress(
@@ -16,7 +15,6 @@ final class DictationController: ObservableObject {
         audioDuration: 0,
         transcribedPosition: 0
     )
-    @Published private(set) var recentWorkSummary = "Reading recent Brain context…"
     @Published private(set) var usefulContext: [TranscriptContextItem] = []
     @Published private(set) var hasOpenRouterAPIKey = false
     @Published private(set) var enhancementStatusText = "Optional — local transcription stays available"
@@ -34,7 +32,6 @@ final class DictationController: ObservableObject {
     @Published var aiEnhancementEnabled: Bool {
         didSet {
             UserDefaults.standard.set(aiEnhancementEnabled, forKey: Self.aiEnhancementDefaultsKey)
-            Task { await refreshRecentWork() }
         }
     }
     @Published var meetingCaptureEnabled: Bool {
@@ -114,9 +111,7 @@ final class DictationController: ObservableObject {
         Task {
             await prepareModel()
         }
-        Task {
-            await refreshRecentWork()
-        }
+
         fnKeyMonitor = FnKeyMonitor { [weak self] action in
             self?.handleFnAction(action)
         }
@@ -183,7 +178,6 @@ final class DictationController: ObservableObject {
             try keyStore.save(value)
             hasOpenRouterAPIKey = true
             enhancementStatusText = "Key saved in Keychain"
-            Task { await refreshRecentWork() }
         } catch {
             enhancementStatusText = error.localizedDescription
         }
@@ -200,19 +194,6 @@ final class DictationController: ObservableObject {
         }
     }
 
-    func refreshRecentWork() async {
-        let evidence = await evidenceProvider.recentEvidence()
-        recentWorkSummary = RecentWorkSummary.make(headlines: evidence.map(\.label))
-        guard aiEnhancementEnabled, let key = try? keyStore.read() else { return }
-        do {
-            let summary = try await OpenRouterClient(apiKey: key, model: openRouterModel)
-                .summarizeRecentWork(evidence: evidence)
-            recentWorkSummary = "Recent focus: \(summary)"
-            enhancementStatusText = "Brain context ready"
-        } catch {
-            enhancementStatusText = "Local recent-work summary active"
-        }
-    }
 
     private func prepareModel() async {
         do {
@@ -287,9 +268,6 @@ final class DictationController: ObservableObject {
                         guard let self else { return }
                         self.liveConfirmedText = snapshot.confirmed
                         self.liveProvisionalText = snapshot.provisional
-                        if !snapshot.confirmed.isEmpty || !snapshot.provisional.isEmpty {
-                            self.transcriptionHUDTitle = "Live transcript"
-                        }
                     },
                     onAudioUpdate: { [weak self] progress in
                         self?.liveAudioProgress = progress
@@ -310,8 +288,6 @@ final class DictationController: ObservableObject {
             if meetingCaptureEnabled, systemAudioGranted {
                 let capture = SystemAudioCapture()
                 do {
-                    transcriptionHUDTitle = "Starting meeting audio"
-                    liveProvisionalText = "Connecting Mac audio"
                     try await capture.start()
                     systemAudioCapture = capture
                     systemAudioGranted = true
@@ -460,7 +436,6 @@ final class DictationController: ObservableObject {
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
             session.metadata.error = nil
             try archive.complete(session)
-            Task { [weak self] in await self?.refreshRecentWork() }
 
             stopLivePresentation()
             refreshAccessibilityPermission()
@@ -526,7 +501,12 @@ final class DictationController: ObservableObject {
             enhancementStatusText = "Enhanced from \(evidence.count) Brain sources"
             return (enhancement, evidence, nil)
         } catch {
-            enhancementStatusText = "Enhancement unavailable — local transcript used"
+            if case OpenRouterError.unauthorized = error {
+                aiEnhancementEnabled = false
+                enhancementStatusText = "OpenRouter authorization failed — correction disabled"
+            } else {
+                enhancementStatusText = "Enhancement unavailable — local transcript used"
+            }
             return (nil, evidence, error.localizedDescription)
         }
     }
@@ -534,8 +514,7 @@ final class DictationController: ObservableObject {
     private func startLivePresentation() {
         isTranscribing = true
         usefulContext = []
-        transcriptionPreview = recentWorkSummary
-        transcriptionHUDTitle = "Zuletzt wichtig"
+        transcriptionHUDTitle = ""
         liveConfirmedText = ""
         liveProvisionalText = ""
         liveAudioProgress = LiveAudioProgress(
@@ -547,7 +526,7 @@ final class DictationController: ObservableObject {
 
     private func stopLivePresentation() {
         isTranscribing = false
-        transcriptionPreview = ""
+        transcriptionHUDTitle = ""
         liveConfirmedText = ""
         liveProvisionalText = ""
         liveAudioProgress = LiveAudioProgress(

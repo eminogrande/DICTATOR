@@ -137,6 +137,13 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
     public var status: DictationStatus
     public var delivery: TranscriptDelivery?
     public var autoPasteEnabled: Bool?
+    public var meetingCaptureEnabled: Bool?
+    public var systemAudioCaptured: Bool?
+    public var rawTranscriptFilename: String?
+    public var enhancementModel: String?
+    public var enhancementEvidencePaths: [String]?
+    public var usefulContext: [TranscriptContextItem]?
+    public var enhancementError: String?
     public var error: String?
 
     public init(
@@ -155,6 +162,13 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
         status: DictationStatus,
         delivery: TranscriptDelivery?,
         autoPasteEnabled: Bool? = nil,
+        meetingCaptureEnabled: Bool? = nil,
+        systemAudioCaptured: Bool? = nil,
+        rawTranscriptFilename: String? = nil,
+        enhancementModel: String? = nil,
+        enhancementEvidencePaths: [String]? = nil,
+        usefulContext: [TranscriptContextItem]? = nil,
+        enhancementError: String? = nil,
         error: String?
     ) {
         self.sessionID = sessionID
@@ -172,6 +186,13 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
         self.status = status
         self.delivery = delivery
         self.autoPasteEnabled = autoPasteEnabled
+        self.meetingCaptureEnabled = meetingCaptureEnabled
+        self.systemAudioCaptured = systemAudioCaptured
+        self.rawTranscriptFilename = rawTranscriptFilename
+        self.enhancementModel = enhancementModel
+        self.enhancementEvidencePaths = enhancementEvidencePaths
+        self.usefulContext = usefulContext
+        self.enhancementError = enhancementError
         self.error = error
     }
 }
@@ -329,7 +350,11 @@ public struct ArchiveStore: Sendable {
         return DictationSession(folderURL: rootURL, audioURL: audioURL, transcriptURL: transcriptURL, metadataURL: metadataURL, metadata: metadata)
     }
 
-    public func nameAndWriteTranscript(_ transcript: String, for original: DictationSession) throws -> DictationSession {
+    public func nameAndWriteTranscript(
+        _ transcript: String,
+        rawTranscript: String? = nil,
+        for original: DictationSession
+    ) throws -> DictationSession {
         var session = original
         let analysis = GraphBrainText.analyze(transcript)
         let sequence: Int
@@ -341,6 +366,7 @@ public struct ArchiveStore: Sendable {
         let base = ArchiveNaming.baseName(sequence: sequence, date: session.metadata.startedAt, headline: analysis.headline)
         let audioURL = rootURL.appendingPathComponent(base + ".wav")
         let transcriptURL = rootURL.appendingPathComponent(base + ".txt")
+        let rawTranscriptURL = rootURL.appendingPathComponent(base + ".raw.txt")
         let metadataURL = rootURL.appendingPathComponent(base + ".json")
 
         try Data(transcript.utf8).write(to: session.transcriptURL, options: .atomic)
@@ -355,6 +381,12 @@ public struct ArchiveStore: Sendable {
         session.metadata.sequence = sequence
         session.metadata.audioFilename = audioURL.lastPathComponent
         session.metadata.transcriptFilename = transcriptURL.lastPathComponent
+        if let rawTranscript {
+            try Data(rawTranscript.utf8).write(to: rawTranscriptURL, options: .atomic)
+            session.metadata.rawTranscriptFilename = rawTranscriptURL.lastPathComponent
+        } else {
+            session.metadata.rawTranscriptFilename = nil
+        }
         session.metadata.metadataFilename = metadataURL.lastPathComponent
         session.metadata.headline = analysis.headline
         session.metadata.summary = analysis.summary

@@ -8,21 +8,55 @@ final class DictationController: ObservableObject {
     @Published private(set) var statusText = "Loading/downloading large-v3-turbo…"
     @Published private(set) var latestTranscript = ""
     @Published private(set) var transcriptionPreview = ""
+    @Published private(set) var transcriptionHUDTitle = "Zuletzt wichtig"
+    @Published private(set) var liveConfirmedText = ""
+    @Published private(set) var liveProvisionalText = ""
+    @Published private(set) var liveAudioProgress = LiveAudioProgress(
+        waveform: [],
+        audioDuration: 0,
+        transcribedPosition: 0
+    )
+    @Published private(set) var recentWorkSummary = "Reading recent Brain context…"
+    @Published private(set) var usefulContext: [TranscriptContextItem] = []
+    @Published private(set) var hasOpenRouterAPIKey = false
+    @Published private(set) var enhancementStatusText = "Optional — local transcription stays available"
     @Published private(set) var isTranscribing = false
     @Published private(set) var isRecording = false
     @Published private(set) var isBusy = true
     @Published private(set) var accessibilityGranted = TranscriptDeliveryService.isAccessibilityGranted
+    @Published private(set) var microphoneGranted = AudioRecorder.isAuthorized
+    @Published private(set) var systemAudioGranted = SystemAudioCapture.isAuthorized
     @Published var autoPasteEnabled: Bool {
         didSet {
             UserDefaults.standard.set(autoPasteEnabled, forKey: Self.autoPasteDefaultsKey)
         }
     }
+    @Published var aiEnhancementEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(aiEnhancementEnabled, forKey: Self.aiEnhancementDefaultsKey)
+            Task { await refreshRecentWork() }
+        }
+    }
+    @Published var meetingCaptureEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(meetingCaptureEnabled, forKey: Self.meetingCaptureDefaultsKey)
+        }
+    }
+    @Published var openRouterModel: String {
+        didSet {
+            UserDefaults.standard.set(openRouterModel, forKey: Self.openRouterModelDefaultsKey)
+        }
+    }
 
     private static let autoPasteDefaultsKey = "autoPasteEnabled"
+    private static let aiEnhancementDefaultsKey = "aiEnhancementEnabled"
+    private static let meetingCaptureDefaultsKey = "meetingCaptureEnabled"
+    private static let openRouterModelDefaultsKey = "openRouterModel"
 
-    private let recorder = AudioRecorder()
     private let transcriber = LocalTranscriber()
     private let targetTracker = TargetApplicationTracker()
+    private let evidenceProvider = BrainEvidenceProvider()
+    private let keyStore = OpenRouterKeyStore()
     private var archive: ArchiveStore?
     private var currentSession: DictationSession?
     private var targetApplication: NSRunningApplication?
@@ -32,7 +66,9 @@ final class DictationController: ObservableObject {
     private var fnKeyMonitor: FnKeyMonitor?
     private var recordingStartedByFn = false
     private var fnReleasedDuringStartup = false
-    private var progressTask: Task<Void, Never>?
+    private var systemAudioCapture: SystemAudioCapture?
+    private var microphoneStartedAt: Date?
+
 
     var recordButtonTitle: String {
         isRecording ? "Stop" : "Record"
@@ -46,11 +82,26 @@ final class DictationController: ObservableObject {
         accessibilityGranted ? "Accessibility Granted" : "Enable Accessibility…"
     }
 
+    var microphoneButtonTitle: String {
+        microphoneGranted ? "Microphone Granted" : "Enable Microphone…"
+    }
+
+    var systemAudioButtonTitle: String {
+        systemAudioGranted ? "Mac Audio Granted" : "Enable Mac Audio…"
+    }
+
     init() {
         let defaults = UserDefaults.standard
         autoPasteEnabled = defaults.object(forKey: Self.autoPasteDefaultsKey) == nil
             ? true
             : defaults.bool(forKey: Self.autoPasteDefaultsKey)
+        aiEnhancementEnabled = defaults.bool(forKey: Self.aiEnhancementDefaultsKey)
+        meetingCaptureEnabled = defaults.bool(forKey: Self.meetingCaptureDefaultsKey)
+        let storedModel = defaults.string(forKey: Self.openRouterModelDefaultsKey)
+        openRouterModel = storedModel == "deepseek/deepseek-v4-flash-latest"
+            ? "~deepseek/deepseek-v4-flash-latest"
+            : storedModel ?? "~deepseek/deepseek-v4-flash-latest"
+        hasOpenRouterAPIKey = ((try? keyStore.read()) ?? nil) != nil
 
         do {
             archive = try ArchiveStore()
@@ -62,6 +113,9 @@ final class DictationController: ObservableObject {
 
         Task {
             await prepareModel()
+        }
+        Task {
+            await refreshRecentWork()
         }
         fnKeyMonitor = FnKeyMonitor { [weak self] action in
             self?.handleFnAction(action)
@@ -96,6 +150,68 @@ final class DictationController: ObservableObject {
 
     func refreshAccessibilityPermission() {
         accessibilityGranted = TranscriptDeliveryService.isAccessibilityGranted
+    }
+
+    func refreshRecordingPermissions() {
+        microphoneGranted = AudioRecorder.isAuthorized
+        systemAudioGranted = SystemAudioCapture.isAuthorized
+    }
+
+    func requestMicrophonePermission() {
+        Task {
+            microphoneGranted = await AudioRecorder.requestPermission()
+            if !microphoneGranted {
+                openPrivacySettings("Privacy_Microphone")
+            }
+        }
+    }
+
+    func requestSystemAudioPermission() {
+        systemAudioGranted = SystemAudioCapture.requestPermission()
+        if !systemAudioGranted {
+            openPrivacySettings("Privacy_ScreenCapture")
+        }
+    }
+
+    private func openPrivacySettings(_ pane: String) {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func saveOpenRouterAPIKey(_ value: String) {
+        do {
+            try keyStore.save(value)
+            hasOpenRouterAPIKey = true
+            enhancementStatusText = "Key saved in Keychain"
+            Task { await refreshRecentWork() }
+        } catch {
+            enhancementStatusText = error.localizedDescription
+        }
+    }
+
+    func removeOpenRouterAPIKey() {
+        do {
+            try keyStore.delete()
+            hasOpenRouterAPIKey = false
+            aiEnhancementEnabled = false
+            enhancementStatusText = "Key removed"
+        } catch {
+            enhancementStatusText = error.localizedDescription
+        }
+    }
+
+    func refreshRecentWork() async {
+        let evidence = await evidenceProvider.recentEvidence()
+        recentWorkSummary = RecentWorkSummary.make(headlines: evidence.map(\.label))
+        guard aiEnhancementEnabled, let key = try? keyStore.read() else { return }
+        do {
+            let summary = try await OpenRouterClient(apiKey: key, model: openRouterModel)
+                .summarizeRecentWork(evidence: evidence)
+            recentWorkSummary = "Recent focus: \(summary)"
+            enhancementStatusText = "Brain context ready"
+        } catch {
+            enhancementStatusText = "Local recent-work summary active"
+        }
     }
 
     private func prepareModel() async {
@@ -147,42 +263,92 @@ final class DictationController: ObservableObject {
         statusText = "Requesting microphone access…"
 
         guard await AudioRecorder.requestPermission() else {
+            microphoneGranted = false
             statusText = "Microphone denied — allow it in System Settings"
             isBusy = false
             operationInProgress = false
             recordingStartedByFn = false
             return
         }
+        microphoneGranted = true
 
         let target = targetTracker.targetApplication()
         do {
             var session = try archive.startSession(
                 sourceApplication: target?.localizedName
             )
+            currentSession = session
+            targetApplication = target
+            startLivePresentation()
+            microphoneStartedAt = Date()
             do {
-                try recorder.start(at: session.audioURL)
+                try await transcriber.startStreaming(
+                    onUpdate: { [weak self] snapshot in
+                        guard let self else { return }
+                        self.liveConfirmedText = snapshot.confirmed
+                        self.liveProvisionalText = snapshot.provisional
+                        if !snapshot.confirmed.isEmpty || !snapshot.provisional.isEmpty {
+                            self.transcriptionHUDTitle = "Live transcript"
+                        }
+                    },
+                    onAudioUpdate: { [weak self] progress in
+                        self?.liveAudioProgress = progress
+                    }
+                )
             } catch {
                 session.metadata.status = .failed
                 session.metadata.completedAt = Date()
                 session.metadata.error = error.localizedDescription
                 try? archive.writeMetadata(for: session)
+                currentSession = nil
+                targetApplication = nil
+                stopLivePresentation()
+                microphoneStartedAt = nil
                 throw error
+            }
+
+            if meetingCaptureEnabled, systemAudioGranted {
+                let capture = SystemAudioCapture()
+                do {
+                    transcriptionHUDTitle = "Starting meeting audio"
+                    liveProvisionalText = "Connecting Mac audio"
+                    try await capture.start()
+                    systemAudioCapture = capture
+                    systemAudioGranted = true
+                } catch {
+                    systemAudioCapture = nil
+                    liveProvisionalText = "Mac audio unavailable — microphone recording continues"
+                }
+            } else if meetingCaptureEnabled {
+                liveProvisionalText = "Mac audio needs permission — microphone recording continues"
             }
 
             currentSessionAutoPasteEnabled = autoPasteEnabled
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
+            session.metadata.meetingCaptureEnabled = meetingCaptureEnabled
+            session.metadata.systemAudioCaptured = systemAudioCapture != nil
             try archive.writeMetadata(for: session)
             currentSession = session
-            targetApplication = target
             isRecording = true
             isBusy = false
             operationInProgress = false
-            statusText = triggeredByFn ? "Recording… release Fn to stop" : "Recording…"
+            if meetingCaptureEnabled, systemAudioCapture != nil {
+                statusText = triggeredByFn
+                    ? "Recording microphone + Mac audio — release Fn to stop"
+                    : "Recording microphone + Mac audio"
+            } else {
+                statusText = triggeredByFn ? "Recording — release Fn to stop" : "Recording"
+            }
             if triggeredByFn && fnReleasedDuringStartup {
                 fnReleasedDuringStartup = false
                 stopRecording()
             }
         } catch {
+            if let systemAudioCapture, let microphoneStartedAt {
+                _ = await systemAudioCapture.stop(relativeTo: microphoneStartedAt)
+            }
+            systemAudioCapture = nil
+            microphoneStartedAt = nil
             statusText = "Recording failed: \(error.localizedDescription)"
             isBusy = false
             operationInProgress = false
@@ -194,14 +360,16 @@ final class DictationController: ObservableObject {
         guard isRecording, !operationInProgress else {
             return
         }
-        recorder.stop()
         recordingStartedByFn = false
         fnReleasedDuringStartup = false
         isRecording = false
         isBusy = true
         operationInProgress = true
-        statusText = "Transcribing locally…"
-        startProgressAnimation()
+        statusText = "Saving recording"
+        transcriptionHUDTitle = "Saving recording"
+        liveProvisionalText = systemAudioCapture == nil
+            ? "Saving microphone audio"
+            : "Saving microphone and Mac audio"
 
         Task {
             await finishDictation()
@@ -210,7 +378,12 @@ final class DictationController: ObservableObject {
 
     private func finishDictation() async {
         guard var session = currentSession, let archive else {
-            stopProgressAnimation()
+            if let systemAudioCapture, let microphoneStartedAt {
+                _ = await systemAudioCapture.stop(relativeTo: microphoneStartedAt)
+            }
+            systemAudioCapture = nil
+            microphoneStartedAt = nil
+            stopLivePresentation()
             statusText = "Session unavailable"
             isBusy = false
             operationInProgress = false
@@ -221,17 +394,62 @@ final class DictationController: ObservableObject {
         try? archive.writeMetadata(for: session)
 
         do {
+            let systemAudio: CapturedSystemAudio?
+            if let systemAudioCapture, let microphoneStartedAt {
+                systemAudio = await systemAudioCapture.stop(relativeTo: microphoneStartedAt)
+            } else {
+                systemAudio = nil
+            }
+            self.systemAudioCapture = nil
+            self.microphoneStartedAt = nil
+            session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
+            transcriptionHUDTitle = "Creating final transcript"
+            liveProvisionalText = "WhisperKit is processing the complete local recording"
+            statusText = "Creating final transcript locally"
+            try await transcriber.stopStreamingAndSave(
+                to: session.audioURL,
+                systemAudio: systemAudio
+            )
             let rawTranscript = try await transcriber.transcribe(audioURL: session.audioURL)
             let transcript = TranscriptCleaner.clean(rawTranscript)
             guard !transcript.isEmpty else {
                 throw DictationError.emptyTranscript
             }
+            liveAudioProgress = LiveAudioProgress(
+                waveform: liveAudioProgress.waveform,
+                audioDuration: liveAudioProgress.audioDuration,
+                transcribedPosition: liveAudioProgress.audioDuration
+            )
+            liveConfirmedText = transcript
+            transcriptionHUDTitle = aiEnhancementEnabled
+                ? "Finalizing transcript"
+                : "Final transcript ready"
+            liveProvisionalText = aiEnhancementEnabled
+                ? "Processing final text"
+                : "Preparing clipboard and cursor insertion"
 
-            session = try archive.nameAndWriteTranscript(transcript, for: session)
+            let enhancementResult = await enhanceIfEnabled(transcript)
+            let finalTranscript = enhancementResult.enhancement?.correctedTranscript ?? transcript
+            session.metadata.enhancementModel = enhancementResult.enhancement == nil ? nil : openRouterModel
+            session.metadata.enhancementEvidencePaths = enhancementResult.evidence.compactMap(\.path)
+            session.metadata.usefulContext = enhancementResult.enhancement?.usefulContext
+            session.metadata.enhancementError = enhancementResult.error
+            session = try archive.nameAndWriteTranscript(
+                finalTranscript,
+                rawTranscript: enhancementResult.enhancement == nil ? nil : transcript,
+                for: session
+            )
             currentSession = session
-            latestTranscript = transcript
+            latestTranscript = finalTranscript
+            usefulContext = enhancementResult.enhancement?.usefulContext ?? []
+            liveConfirmedText = finalTranscript
+            transcriptionHUDTitle = "Delivering transcript"
+            liveProvisionalText = currentSessionAutoPasteEnabled
+                ? "Copying and inserting at the original cursor"
+                : "Copying final text to the clipboard"
+            statusText = "Delivering final transcript"
             let delivery = await TranscriptDeliveryService.deliver(
-                transcript,
+                finalTranscript,
                 to: targetApplication,
                 mode: AutoPastePolicy.deliveryMode(isEnabled: currentSessionAutoPasteEnabled)
             )
@@ -242,8 +460,9 @@ final class DictationController: ObservableObject {
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
             session.metadata.error = nil
             try archive.complete(session)
+            Task { [weak self] in await self?.refreshRecentWork() }
 
-            stopProgressAnimation()
+            stopLivePresentation()
             refreshAccessibilityPermission()
             switch delivery {
             case .accessibilityInserted:
@@ -262,37 +481,80 @@ final class DictationController: ObservableObject {
             session.metadata.completedAt = Date()
             session.metadata.error = error.localizedDescription
             try? archive.writeMetadata(for: session)
-            stopProgressAnimation()
+            stopLivePresentation()
             statusText = "Transcription failed: \(error.localizedDescription)"
         }
 
-        stopProgressAnimation()
+        stopLivePresentation()
         currentSession = nil
         targetApplication = nil
         isBusy = false
         operationInProgress = false
     }
-    private func startProgressAnimation() {
-        progressTask?.cancel()
-        isTranscribing = true
-        let frames = TranscriptionProgressFrames.make(from: latestTranscript)
-        transcriptionPreview = frames.first ?? "..."
-        progressTask = Task { [weak self] in
-            var index = 0
-            while !Task.isCancelled {
-                guard let self else { return }
-                self.transcriptionPreview = frames[index % frames.count]
-                index += 1
-                try? await Task.sleep(nanoseconds: 80_000_000)
+
+    private func enhanceIfEnabled(_ transcript: String) async -> (
+        enhancement: TranscriptEnhancement?,
+        evidence: [BrainEvidenceItem],
+        error: String?
+    ) {
+        guard aiEnhancementEnabled else { return (nil, [], nil) }
+        let key: String
+        do {
+            guard let stored = try keyStore.read() else {
+                enhancementStatusText = "Add an OpenRouter key to enable enhancement"
+                return (nil, [], "OpenRouter key not configured")
             }
+            key = stored
+        } catch {
+            enhancementStatusText = error.localizedDescription
+            return (nil, [], error.localizedDescription)
+        }
+
+        statusText = "Improving with Brain context…"
+        let evidence = await evidenceProvider.evidence(for: transcript)
+        do {
+            let candidate = try await OpenRouterClient(apiKey: key, model: openRouterModel)
+                .enhance(transcript: transcript, evidence: evidence)
+            guard let enhancement = TranscriptEnhancementContract.validate(
+                candidate,
+                rawTranscript: transcript,
+                evidence: evidence
+            ) else {
+                enhancementStatusText = "Unsafe rewrite rejected — local transcript used"
+                return (nil, evidence, "Enhancement failed preservation contract")
+            }
+            enhancementStatusText = "Enhanced from \(evidence.count) Brain sources"
+            return (enhancement, evidence, nil)
+        } catch {
+            enhancementStatusText = "Enhancement unavailable — local transcript used"
+            return (nil, evidence, error.localizedDescription)
         }
     }
 
-    private func stopProgressAnimation() {
-        progressTask?.cancel()
-        progressTask = nil
+    private func startLivePresentation() {
+        isTranscribing = true
+        usefulContext = []
+        transcriptionPreview = recentWorkSummary
+        transcriptionHUDTitle = "Zuletzt wichtig"
+        liveConfirmedText = ""
+        liveProvisionalText = ""
+        liveAudioProgress = LiveAudioProgress(
+            waveform: [],
+            audioDuration: 0,
+            transcribedPosition: 0
+        )
+    }
+
+    private func stopLivePresentation() {
         isTranscribing = false
         transcriptionPreview = ""
+        liveConfirmedText = ""
+        liveProvisionalText = ""
+        liveAudioProgress = LiveAudioProgress(
+            waveform: [],
+            audioDuration: 0,
+            transcribedPosition: 0
+        )
     }
 
 }

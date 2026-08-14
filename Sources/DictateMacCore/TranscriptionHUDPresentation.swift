@@ -1,20 +1,51 @@
 public struct TranscriptionHUDPresentation: Equatable, Sendable {
     public let title: String
-    public let detail: String
+    public let recall: String
+    public let confirmed: String
+    public let provisional: String
+    public let audio: LiveAudioProgress
 
-    public init(title: String, detail: String) {
+    public init(
+        title: String,
+        recall: String,
+        confirmed: String,
+        provisional: String,
+        audio: LiveAudioProgress = LiveAudioProgress(
+            waveform: [],
+            audioDuration: 0,
+            transcribedPosition: 0
+        )
+    ) {
         self.title = title
-        self.detail = detail
+        self.recall = recall
+        self.confirmed = confirmed
+        self.provisional = provisional
+        self.audio = audio
+    }
+
+    public var hasTranscript: Bool {
+        !confirmed.isEmpty || !provisional.isEmpty
     }
 
     public static func make(
-        isTranscribing: Bool,
-        preview: String
+        isVisible: Bool,
+        title: String,
+        recall: String,
+        confirmed: String,
+        provisional: String,
+        audio: LiveAudioProgress = LiveAudioProgress(
+            waveform: [],
+            audioDuration: 0,
+            transcribedPosition: 0
+        )
     ) -> TranscriptionHUDPresentation? {
-        guard isTranscribing else { return nil }
+        guard isVisible else { return nil }
         return TranscriptionHUDPresentation(
-            title: "Transcribing locally",
-            detail: preview.isEmpty ? "..." : preview
+            title: title,
+            recall: recall.isEmpty ? "Loading useful recent context…" : recall,
+            confirmed: confirmed,
+            provisional: provisional,
+            audio: audio
         )
     }
 }

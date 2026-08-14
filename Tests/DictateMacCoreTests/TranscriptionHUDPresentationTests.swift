@@ -2,34 +2,60 @@ import XCTest
 @testable import DictateMacCore
 
 final class TranscriptionHUDPresentationTests: XCTestCase {
-    func testTranscribingProducesVisibleLocalProgress() {
+    func testShowsUsefulRecallBeforeFirstWord() {
+        let presentation = TranscriptionHUDPresentation.make(
+            isVisible: true,
+            title: "Zuletzt wichtig",
+            recall: "DICTATOR: Streaming geplant. Nächster Schritt: echter Live-Text.",
+            confirmed: "",
+            provisional: ""
+        )
         XCTAssertEqual(
-            TranscriptionHUDPresentation.make(
-                isTranscribing: true,
-                preview: "......"
-            ),
+            presentation,
             TranscriptionHUDPresentation(
-                title: "Transcribing locally",
-                detail: "......"
+                title: "Zuletzt wichtig",
+                recall: "DICTATOR: Streaming geplant. Nächster Schritt: echter Live-Text.",
+                confirmed: "",
+                provisional: ""
             )
         )
+        XCTAssertFalse(presentation?.hasTranscript ?? true)
     }
 
-    func testTranscribingFallsBackToImmediateDots() {
+    func testShowsConfirmedAndProvisionalLiveText() {
+        let presentation = TranscriptionHUDPresentation.make(
+            isVisible: true,
+            title: "Live transcript",
+            recall: "Recent context",
+            confirmed: "This part is stable.",
+            provisional: "This may still change"
+        )
+        XCTAssertTrue(presentation?.hasTranscript ?? false)
+        XCTAssertEqual(presentation?.confirmed, "This part is stable.")
+        XCTAssertEqual(presentation?.provisional, "This may still change")
+    }
+
+    func testEmptyRecallUsesUsefulLoadingCopy() {
         XCTAssertEqual(
             TranscriptionHUDPresentation.make(
-                isTranscribing: true,
-                preview: ""
-            )?.detail,
-            "..."
+                isVisible: true,
+                title: "Zuletzt wichtig",
+                recall: "",
+                confirmed: "",
+                provisional: ""
+            )?.recall,
+            "Loading useful recent context…"
         )
     }
 
     func testIdleHasNoHUD() {
         XCTAssertNil(
             TranscriptionHUDPresentation.make(
-                isTranscribing: false,
-                preview: "stale text"
+                isVisible: false,
+                title: "stale",
+                recall: "stale",
+                confirmed: "stale",
+                provisional: "stale"
             )
         )
     }

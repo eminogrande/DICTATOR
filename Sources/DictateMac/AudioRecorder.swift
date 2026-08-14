@@ -5,6 +5,10 @@ import Foundation
 final class AudioRecorder {
     private var recorder: AVAudioRecorder?
 
+    static var isAuthorized: Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
     static func requestPermission() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:

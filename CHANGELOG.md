@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.8.0 — 2026-08-14
+
+- Add a real white live waveform from WhisperKit's microphone-energy buffers; no generated or decorative animation.
+- Show a white position marker for the latest decoded audio timestamp and `decoded / recorded` duration in the HUD.
+- Keep confirmed transcript text visually stable, replace only the provisional tail, and grow the HUD with content.
+- Add optional Meeting audio capture: record microphone and Mac audio in parallel, align both sources, mix them into the permanent WAV, and transcribe the complete recording locally.
+- Show concrete saving, final-transcription, and delivery phases after Fn release instead of appearing frozen.
+- Fix Brain “All Sources” deadlocks by draining large sidecar output without bounded pipes.
+- Import pasted text, documents, Hermes memories, Hermes/agent session exports, and repositories with provenance and conversation lineage.
+- Add the Hermes `MemoryProvider` adapter while keeping `MEMORY.md` and `USER.md` as the curated always-on layer.
+- Require every changed transcript term to occur in Brain evidence; phonetically retrieved `passkey` evidence can ground `PASCII → passkey`, but no hard-coded replacement exists.
+- Preserve repository source contents when function relationships are merged into the graph.
+
+### Rationale
+
+The waveform and marker expose real recording and decoder progress without adding explanatory frontend copy. Nuanced remains the canonical local graph; Hermes compatibility is additive rather than a second competing memory database.
+
+## 0.7.0 — 2026-08-14
+
+- Replace the recording waveform with real WhisperKit streaming transcription.
+- Render confirmed text at 22 px and provisional text at 22 px in a lighter color; provisional words may change as Whisper decodes.
+- Show an LLM-generated recent-work recall card until the first spoken words arrive.
+- Enforce a 17 px minimum across the menu, Brain browser, source metadata, and graph labels; remove caption-sized copy.
+- Restrict OpenRouter to high-confidence speech-recognition corrections: changed words require confidence ≥0.90 and a strict local edit-distance gate.
+- Keep recall, repository links, and suggested context separate; only corrected spoken text is copied or inserted.
+- Save the same audio samples used by live Whisper as the permanent WAV before the final local transcription pass.
+
+## 0.6.0 — 2026-08-14
+
+- Replace fake dots/previous-transcript animation with a sweeping waveform sampled from the actual WAV and a recent-work summary from Brain.
+- Add optional Keychain-backed OpenRouter enhancement for names, spelling, punctuation, and grounded supporting context.
+- Send only the cleaned transcript plus up to eight bounded Brain snippets; never send audio or the full graph.
+- Preserve exact local Whisper output as `.raw.txt` whenever an enhanced `.txt` is accepted.
+- Reject model output that rewrites too much of the spoken text and fall back to the untouched local transcript.
+
+## 0.5.2 — 2026-08-14
+
+- Replace the unreliable SwiftUI `MenuBarExtra(.window)` shell with a native `NSStatusItem` and `NSPopover`.
+- Keep the same compact SwiftUI menu content and open the Brain through a native retained window.
+- Log real status-button clicks and resulting popover visibility for installed-app verification.
+
+## 0.5.1 — 2026-08-14
+
+- Fix the menu-bar icon opening no popover after the transcription HUD was added.
+- Create the non-activating HUD panel lazily on first transcription instead of during SwiftUI scene initialization.
+
+## 0.5.0 — 2026-08-14
+
+- Add a real Brain browser with Home, All Sources, Recordings, Transcripts, Repositories, Files, and Functions.
+- Add persistent Home/Back/Clear navigation, recent recordings, source details, explicit Open Source actions, and connected-evidence graphs.
+- Add type-filtered sidecar browsing with deterministic recent-first recording order.
+- Connect the canonical DICTATOR graph to Hermes through three bounded MCP tools: ingest, search, and stats.
+- Keep retrieval source-cited and fail closed when evidence is absent; multilingual semantic retrieval remains the next quality upgrade.
+
 ## 0.4.1 — 2026-08-14
 
 - Keep local transcription visibly alive with a non-activating floating HUD above the current app.

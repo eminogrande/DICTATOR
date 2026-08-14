@@ -32,12 +32,15 @@ final class TranscriptionHUDController {
             return
         }
 
-        model.presentation = presentation
         let panel = panel ?? makePanel()
         self.panel = panel
-        let height = desiredHeight(for: presentation)
-        model.height = height
-        panel.setContentSize(NSSize(width: 680, height: height))
+        let layout = desiredLayout(for: presentation)
+        model.height = layout.panelHeight
+        model.textViewportHeight = layout.textViewportHeight
+        model.shouldFollowBottom = layout.textOverflows
+        model.showPhaseProgress = !controller.isRecording && !presentation.title.isEmpty
+        model.presentation = presentation
+        panel.setContentSize(NSSize(width: 680, height: layout.panelHeight))
         position(panel)
         panel.orderFrontRegardless()
     }
@@ -71,24 +74,27 @@ final class TranscriptionHUDController {
         ))
     }
 
-    private func desiredHeight(for presentation: TranscriptionHUDPresentation) -> CGFloat {
-        let text = [presentation.confirmed, presentation.provisional]
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
+    private func desiredLayout(for presentation: TranscriptionHUDPresentation) -> TranscriptionHUDLayoutResult {
         let font = NSFont.systemFont(ofSize: 22)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 5
-        let bounds = (text as NSString).boundingRect(
-            with: NSSize(width: 632, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font, .paragraphStyle: paragraph]
-        )
+        let measure: (String) -> CGFloat = { text in
+            guard !text.isEmpty else { return 0 }
+            return ceil((text as NSString).boundingRect(
+                with: NSSize(width: 632, height: CGFloat.greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font, .paragraphStyle: paragraph]
+            ).height)
+        }
+        let confirmedHeight = measure(presentation.confirmed)
+        let provisionalHeight = measure(presentation.provisional)
+        let transcriptSpacing: CGFloat = confirmedHeight > 0 && provisionalHeight > 0 ? 8 : 0
+        let textHeight = confirmedHeight + provisionalHeight + transcriptSpacing
 
         let screenHeight = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 900
-        return TranscriptionHUDLayout.height(
-            textHeight: ceil(bounds.height),
-            hasAudio: presentation.audio.audioDuration > 0,
-            hasTitle: !presentation.title.isEmpty,
+        return TranscriptionHUDLayout.make(
+            textHeight: textHeight > 0 ? textHeight + 6 : 0,
+            hasHeader: presentation.audio.audioDuration > 0 || !presentation.title.isEmpty,
             screenHeight: screenHeight
         )
     }
@@ -102,29 +108,33 @@ private final class TranscriptionHUDModel: ObservableObject {
         provisional: ""
     )
     @Published var height: CGFloat = 128
+    @Published var textViewportHeight: CGFloat = 0
+    @Published var shouldFollowBottom = false
+    @Published var showPhaseProgress = false
 }
 
 private struct TranscriptionHUDView: View {
     @ObservedObject var model: TranscriptionHUDModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if model.presentation.audio.audioDuration > 0 {
-                LiveAudioWaveform(progress: model.presentation.audio)
-                    .frame(height: 70)
-            }
-
-            if !model.presentation.title.isEmpty {
-                Text(model.presentation.title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: TranscriptionHUDLayout.sectionSpacing) {
+            if model.presentation.audio.audioDuration > 0 || !model.presentation.title.isEmpty {
+                LiveAudioWaveform(
+                    progress: model.presentation.audio,
+                    phase: model.presentation.title,
+                    showProgress: model.showPhaseProgress
+                )
+                .frame(height: TranscriptionHUDLayout.headerHeight)
             }
 
             if model.presentation.hasTranscript {
                 LiveTranscriptContent(
                     confirmed: model.presentation.confirmed,
-                    provisional: model.presentation.provisional
+                    provisional: model.presentation.provisional,
+                    shouldFollowBottom: model.shouldFollowBottom
                 )
+                .frame(height: model.textViewportHeight, alignment: .top)
+                .clipped()
             }
         }
         .padding(24)
@@ -141,6 +151,8 @@ private struct TranscriptionHUDView: View {
 
 private struct LiveAudioWaveform: View {
     let progress: LiveAudioProgress
+    let phase: String
+    let showProgress: Bool
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -174,9 +186,23 @@ private struct LiveAudioWaveform: View {
                 )
             }
 
-            Text(progress.timecode)
-                .font(.system(size: 17, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white)
+            HStack(spacing: 8) {
+                if !phase.isEmpty {
+                    if showProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    }
+                    Text(phase)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                Text(progress.timecode)
+                    .font(.system(size: 17, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white)
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityValue(progress.timecode)
@@ -186,29 +212,49 @@ private struct LiveAudioWaveform: View {
 private struct LiveTranscriptContent: View {
     let confirmed: String
     let provisional: String
+    let shouldFollowBottom: Bool
+    private let topID = "live-transcript-top"
     private let bottomID = "live-transcript-bottom"
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear.frame(height: 0).id(topID)
                     if !confirmed.isEmpty {
                         Text(confirmed)
                             .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     if !provisional.isEmpty {
                         Text(provisional)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, confirmed.isEmpty ? 0 : 8)
                     }
-                    Color.clear.frame(height: 1).id(bottomID)
+                    Color.clear.frame(height: 0).id(bottomID)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .font(.system(size: 22, weight: .regular))
             .lineSpacing(5)
-            .onAppear { proxy.scrollTo(bottomID, anchor: .bottom) }
+            .onAppear {
+                proxy.scrollTo(
+                    shouldFollowBottom ? bottomID : topID,
+                    anchor: shouldFollowBottom ? .bottom : .top
+                )
+            }
             .onChange(of: confirmed + provisional) {
-                proxy.scrollTo(bottomID, anchor: .bottom)
+                proxy.scrollTo(
+                    shouldFollowBottom ? bottomID : topID,
+                    anchor: shouldFollowBottom ? .bottom : .top
+                )
+            }
+            .onChange(of: shouldFollowBottom) {
+                proxy.scrollTo(
+                    shouldFollowBottom ? bottomID : topID,
+                    anchor: shouldFollowBottom ? .bottom : .top
+                )
             }
         }
     }

@@ -1,17 +1,37 @@
 import Foundation
 
+public struct TranscriptionHUDLayoutResult: Equatable, Sendable {
+    public let panelHeight: CGFloat
+    public let textViewportHeight: CGFloat
+    public let textOverflows: Bool
+}
+
 public enum TranscriptionHUDLayout {
-    public static func height(
+    public static let verticalPadding: CGFloat = 48
+    public static let headerHeight: CGFloat = 88
+    public static let sectionSpacing: CGFloat = 16
+    public static let minimumHeight: CGFloat = 128
+    public static let screenMargin: CGFloat = 36
+
+    public static func make(
         textHeight: CGFloat,
-        hasAudio: Bool,
-        hasTitle: Bool,
+        hasHeader: Bool,
         screenHeight: CGFloat
-    ) -> CGFloat {
-        var blocks: [CGFloat] = []
-        if hasAudio { blocks.append(70) }
-        if hasTitle { blocks.append(21) }
-        if textHeight > 0 { blocks.append(textHeight) }
-        let naturalHeight = 48 + blocks.reduce(0, +) + CGFloat(max(0, blocks.count - 1)) * 18
-        return min(max(128, naturalHeight), max(128, screenHeight - 36))
+    ) -> TranscriptionHUDLayoutResult {
+        let headerAndSpacing = hasHeader
+            ? headerHeight + (textHeight > 0 ? sectionSpacing : 0)
+            : 0
+        let naturalHeight = verticalPadding + headerAndSpacing + max(0, textHeight)
+        let maximumHeight = max(minimumHeight, screenHeight - screenMargin)
+        let panelHeight = min(max(minimumHeight, naturalHeight), maximumHeight)
+        let textViewportHeight = max(
+            0,
+            panelHeight - verticalPadding - headerAndSpacing
+        )
+        return TranscriptionHUDLayoutResult(
+            panelHeight: panelHeight,
+            textViewportHeight: textViewportHeight,
+            textOverflows: textHeight > textViewportHeight + 0.5
+        )
     }
 }

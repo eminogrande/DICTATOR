@@ -93,4 +93,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.8.1`: real waveform and decoder position, full-height growing live HUD without Recent Focus copy, microphone + Mac meeting audio, visible local processing phases, grounded corrections, structured agent/Hermes imports, deadlock-safe Brain browsing, and a Hermes-compatible memory provider.
+Version `0.8.2`: fixed waveform header, separate full-height growing transcript viewport, explicit local processing phases, microphone + Mac meeting audio, grounded corrections, structured agent/Hermes imports, deadlock-safe Brain browsing, and a Hermes-compatible memory provider.

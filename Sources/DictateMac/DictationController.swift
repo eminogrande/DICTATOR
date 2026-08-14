@@ -293,10 +293,10 @@ final class DictationController: ObservableObject {
                     systemAudioGranted = true
                 } catch {
                     systemAudioCapture = nil
-                    liveProvisionalText = "Mac audio unavailable — microphone recording continues"
+                    transcriptionHUDTitle = "Mac audio unavailable — microphone only"
                 }
             } else if meetingCaptureEnabled {
-                liveProvisionalText = "Mac audio needs permission — microphone recording continues"
+                transcriptionHUDTitle = "Mac audio permission needed — microphone only"
             }
 
             currentSessionAutoPasteEnabled = autoPasteEnabled
@@ -342,10 +342,9 @@ final class DictationController: ObservableObject {
         isBusy = true
         operationInProgress = true
         statusText = "Saving recording"
-        transcriptionHUDTitle = "Saving recording"
-        liveProvisionalText = systemAudioCapture == nil
+        transcriptionHUDTitle = systemAudioCapture == nil
             ? "Saving microphone audio"
-            : "Saving microphone and Mac audio"
+            : "Saving microphone + Mac audio"
 
         Task {
             await finishDictation()
@@ -379,8 +378,7 @@ final class DictationController: ObservableObject {
             self.systemAudioCapture = nil
             self.microphoneStartedAt = nil
             session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
-            transcriptionHUDTitle = "Creating final transcript"
-            liveProvisionalText = "WhisperKit is processing the complete local recording"
+            transcriptionHUDTitle = "Final local transcription"
             statusText = "Creating final transcript locally"
             try await transcriber.stopStreamingAndSave(
                 to: session.audioURL,
@@ -397,12 +395,10 @@ final class DictationController: ObservableObject {
                 transcribedPosition: liveAudioProgress.audioDuration
             )
             liveConfirmedText = transcript
+            liveProvisionalText = ""
             transcriptionHUDTitle = aiEnhancementEnabled
-                ? "Finalizing transcript"
-                : "Final transcript ready"
-            liveProvisionalText = aiEnhancementEnabled
-                ? "Processing final text"
-                : "Preparing clipboard and cursor insertion"
+                ? "Checking grounded corrections"
+                : "Preparing transcript"
 
             let enhancementResult = await enhanceIfEnabled(transcript)
             let finalTranscript = enhancementResult.enhancement?.correctedTranscript ?? transcript
@@ -419,10 +415,8 @@ final class DictationController: ObservableObject {
             latestTranscript = finalTranscript
             usefulContext = enhancementResult.enhancement?.usefulContext ?? []
             liveConfirmedText = finalTranscript
-            transcriptionHUDTitle = "Delivering transcript"
-            liveProvisionalText = currentSessionAutoPasteEnabled
-                ? "Copying and inserting at the original cursor"
-                : "Copying final text to the clipboard"
+            liveProvisionalText = ""
+            transcriptionHUDTitle = "Copying transcript"
             statusText = "Delivering final transcript"
             let delivery = await TranscriptDeliveryService.deliver(
                 finalTranscript,

@@ -3,42 +3,50 @@ import XCTest
 
 final class TranscriptionHUDLayoutTests: XCTestCase {
     func testLongerTranscriptExpandsPanelDownward() {
-        let short = TranscriptionHUDLayout.height(
+        let short = TranscriptionHUDLayout.make(
             textHeight: 60,
-            hasAudio: true,
-            hasTitle: false,
+            hasHeader: true,
             screenHeight: 1_000
         )
-        let long = TranscriptionHUDLayout.height(
+        let long = TranscriptionHUDLayout.make(
             textHeight: 420,
-            hasAudio: true,
-            hasTitle: false,
+            hasHeader: true,
             screenHeight: 1_000
         )
-        XCTAssertGreaterThan(long, short)
+        XCTAssertGreaterThan(long.panelHeight, short.panelHeight)
+        XCTAssertFalse(long.textOverflows)
+        XCTAssertEqual(long.textViewportHeight, 420)
     }
 
     func testPanelUsesVisibleScreenUntilThirtySixPointMargin() {
-        XCTAssertEqual(
-            TranscriptionHUDLayout.height(
-                textHeight: 2_000,
-                hasAudio: true,
-                hasTitle: true,
-                screenHeight: 1_000
-            ),
-            964
+        let layout = TranscriptionHUDLayout.make(
+            textHeight: 2_000,
+            hasHeader: true,
+            screenHeight: 1_000
         )
+        XCTAssertEqual(layout.panelHeight, 964)
+        XCTAssertEqual(layout.textViewportHeight, 812)
+        XCTAssertTrue(layout.textOverflows)
     }
 
-    func testWaveformOnlyKeepsCompactMinimum() {
-        XCTAssertEqual(
-            TranscriptionHUDLayout.height(
-                textHeight: 0,
-                hasAudio: true,
-                hasTitle: false,
-                screenHeight: 1_000
-            ),
-            128
+    func testWaveformHeaderHasDedicatedHeight() {
+        let layout = TranscriptionHUDLayout.make(
+            textHeight: 0,
+            hasHeader: true,
+            screenHeight: 1_000
         )
+        XCTAssertEqual(layout.panelHeight, 136)
+        XCTAssertEqual(layout.textViewportHeight, 0)
+        XCTAssertFalse(layout.textOverflows)
+    }
+
+    func testFittingTextNeverScrollsBehindHeader() {
+        let layout = TranscriptionHUDLayout.make(
+            textHeight: 240,
+            hasHeader: true,
+            screenHeight: 1_000
+        )
+        XCTAssertEqual(layout.textViewportHeight, 240)
+        XCTAssertFalse(layout.textOverflows)
     }
 }

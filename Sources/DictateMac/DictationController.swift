@@ -378,8 +378,8 @@ final class DictationController: ObservableObject {
             self.systemAudioCapture = nil
             self.microphoneStartedAt = nil
             session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
-            transcriptionHUDTitle = "Final local transcription"
-            statusText = "Creating final transcript locally"
+            transcriptionHUDTitle = "Finalizing, please wait"
+            statusText = "Finalizing, please wait"
             try await transcriber.stopStreamingAndSave(
                 to: session.audioURL,
                 systemAudio: systemAudio

@@ -5,7 +5,7 @@
 - Give the waveform and timecode a fixed 88-point header that cannot overlap transcript content.
 - Give the transcript its own measured viewport below the header and update panel height before replacing live text.
 - Keep fitting text anchored at the top; follow the bottom only after content truly exceeds the screen-limited viewport.
-- Move saving, final local transcription, grounded correction, and delivery phases into the fixed header instead of provisional transcript text.
+- Move saving, `Finalizing, please wait`, grounded correction, and delivery phases into the fixed header instead of provisional transcript text.
 
 ### Rationale
 

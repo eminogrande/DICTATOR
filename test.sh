@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
 SECRET_ENV=()
 while IFS='=' read -r name _; do
   case "$name" in

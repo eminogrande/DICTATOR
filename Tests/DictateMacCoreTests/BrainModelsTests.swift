@@ -10,19 +10,12 @@ final class BrainModelsTests: XCTestCase {
         XCTAssertEqual(response.results.first?.score, 7)
     }
 
-    func testProgressFramesTypeAndDeleteOnlyPreviousTranscriptText() {
-        let source = "minimum font size should always be sixteen pixels"
-        let frames = TranscriptionProgressFrames.make(from: source)
-        XCTAssertTrue(frames.contains("..."))
-        XCTAssertTrue(frames.contains("“m”"))
-        XCTAssertTrue(frames.contains { $0.contains("minimum font size") })
 
-        let fragments = frames
-            .filter { $0.hasPrefix("“") }
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "“”")) }
-        XCTAssertTrue(fragments.allSatisfy(source.contains))
-
-        let longestIndex = fragments.indices.max(by: { fragments[$0].count < fragments[$1].count })!
-        XCTAssertTrue(fragments[longestIndex...].dropFirst().contains { $0.count < fragments[longestIndex].count })
+    func testBrainBrowserSectionsMapToSidecarTypes() {
+        XCTAssertEqual(BrainBrowserSection.sidebarSections, [.home, .all, .recording, .transcript, .session, .memory, .document, .project, .file, .function])
+        XCTAssertNil(BrainBrowserSection.home.browseType)
+        XCTAssertEqual(BrainBrowserSection.all.browseType, "all")
+        XCTAssertEqual(BrainBrowserSection.recording.browseType, "recording")
+        XCTAssertFalse(BrainBrowserSection.sidebarSections.contains(.search))
     }
 }

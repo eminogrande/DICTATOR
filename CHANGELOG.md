@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.5 — 2026-08-17
+
+- Lock the final Whisper pass to the detected spoken language. Do not remap it to German or English.
+
+### Rationale
+
+Forcing DE/EN translated other languages. Detect, lock that code, transcribe. Never translate.
+
 ## 0.9.4 — 2026-08-17
 
 - Detect German or English on the microphone and lock Whisper to that language for the final pass. Never use the translate-to-English task.

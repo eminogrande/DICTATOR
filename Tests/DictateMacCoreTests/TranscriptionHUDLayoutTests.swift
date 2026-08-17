@@ -49,4 +49,16 @@ final class TranscriptionHUDLayoutTests: XCTestCase {
         XCTAssertEqual(layout.textViewportHeight, 240)
         XCTAssertFalse(layout.textOverflows)
     }
+
+    func testFinalizingFooterSitsBelowTranscript() {
+        let layout = TranscriptionHUDLayout.make(
+            textHeight: 240,
+            hasHeader: true,
+            hasFooter: true,
+            screenHeight: 1_000
+        )
+        XCTAssertEqual(layout.textViewportHeight, 240)
+        XCTAssertEqual(layout.panelHeight, 460)
+        XCTAssertFalse(layout.textOverflows)
+    }
 }

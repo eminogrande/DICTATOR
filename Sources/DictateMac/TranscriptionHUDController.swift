@@ -34,7 +34,7 @@ final class TranscriptionHUDController {
 
         let panel = panel ?? makePanel()
         self.panel = panel
-        let layout = desiredLayout(for: presentation)
+        let layout = desiredLayout(for: presentation, isRecording: controller.isRecording)
         model.height = layout.panelHeight
         model.textViewportHeight = layout.textViewportHeight
         model.shouldFollowBottom = layout.textOverflows
@@ -74,7 +74,7 @@ final class TranscriptionHUDController {
         ))
     }
 
-    private func desiredLayout(for presentation: TranscriptionHUDPresentation) -> TranscriptionHUDLayoutResult {
+    private func desiredLayout(for presentation: TranscriptionHUDPresentation, isRecording: Bool) -> TranscriptionHUDLayoutResult {
         let font = NSFont.systemFont(ofSize: 22)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 5
@@ -94,7 +94,8 @@ final class TranscriptionHUDController {
         let screenHeight = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 900
         return TranscriptionHUDLayout.make(
             textHeight: textHeight > 0 ? textHeight + 6 : 0,
-            hasHeader: presentation.audio.audioDuration > 0 || !presentation.title.isEmpty,
+            hasHeader: presentation.audio.audioDuration > 0,
+            hasFooter: !isRecording && !presentation.title.isEmpty,
             screenHeight: screenHeight
         )
     }
@@ -118,12 +119,8 @@ private struct TranscriptionHUDView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: TranscriptionHUDLayout.sectionSpacing) {
-            if model.presentation.audio.audioDuration > 0 || !model.presentation.title.isEmpty {
-                LiveAudioWaveform(
-                    progress: model.presentation.audio,
-                    phase: model.presentation.title,
-                    showProgress: model.showPhaseProgress
-                )
+            if model.presentation.audio.audioDuration > 0 {
+                LiveAudioWaveform(progress: model.presentation.audio)
                 .frame(height: TranscriptionHUDLayout.headerHeight)
             }
 
@@ -135,6 +132,20 @@ private struct TranscriptionHUDView: View {
                 )
                 .frame(height: model.textViewportHeight, alignment: .top)
                 .clipped()
+            }
+
+            if model.showPhaseProgress {
+                HStack(spacing: 12) {
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.white)
+                    Text(model.presentation.title)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                }
+                .frame(height: TranscriptionHUDLayout.footerHeight, alignment: .leading)
             }
         }
         .padding(24)
@@ -151,8 +162,6 @@ private struct TranscriptionHUDView: View {
 
 private struct LiveAudioWaveform: View {
     let progress: LiveAudioProgress
-    let phase: String
-    let showProgress: Bool
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -186,23 +195,9 @@ private struct LiveAudioWaveform: View {
                 )
             }
 
-            HStack(spacing: 8) {
-                if !phase.isEmpty {
-                    if showProgress {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    }
-                    Text(phase)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 12)
-                Text(progress.timecode)
-                    .font(.system(size: 17, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white)
-            }
+            Text(progress.timecode)
+                .font(.system(size: 17, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityValue(progress.timecode)

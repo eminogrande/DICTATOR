@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.6 — 2026-08-17
+
+- After Fn release, show **Finalizing, please wait** with a large spinner at the bottom of the HUD, below the transcript.
+
+### Rationale
+
+The wait state sat between waveform and text and was easy to miss. The bottom of the box is the last thing you see before paste.
+
 ## 0.9.5 — 2026-08-17
 
 - Lock the final Whisper pass to the detected spoken language. Do not remap it to German or English.

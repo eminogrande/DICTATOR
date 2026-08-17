@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.4 — 2026-08-17
+
+- Detect German or English on the microphone and lock Whisper to that language for the final pass. Never use the translate-to-English task.
+- Transcribe the microphone only. Meeting mix still goes into the saved WAV, not into the pasted text.
+
+### Rationale
+
+With language unlocked, Whisper often emitted English. Mixed Mac audio made that worse. The paste should stay in the spoken language.
+
 ## 0.9.3 — 2026-08-17
 
 - Restore the full-file Whisper pass after Fn release. Live text is a preview only and is not pasted.

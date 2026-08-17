@@ -107,7 +107,7 @@ final class LocalTranscriber {
     func stopStreamingAndSave(
         to audioURL: URL,
         systemAudio: CapturedSystemAudio? = nil
-    ) async throws {
+    ) async throws -> [Float] {
         guard let whisperKit, let streamTranscriber else {
             throw TranscriptionError.streamNotRunning
         }
@@ -123,23 +123,27 @@ final class LocalTranscriber {
             systemOffset: systemAudio?.offsetSamples ?? 0
         )
         try Self.writeWAV(samples, to: audioURL)
+        return microphone
     }
 
-    func transcribe(audioURL: URL) async throws -> String {
+    func transcribe(samples: [Float]) async throws -> String {
         guard let whisperKit else { throw TranscriptionError.modelNotLoaded }
+        let detection = try await whisperKit.detectLangauge(audioArray: samples)
+        let language = SpokenLanguage.locked(detected: detection.language, probabilities: detection.langProbs)
         let results = try await whisperKit.transcribe(
-            audioPath: audioURL.path,
-            decodeOptions: decodingOptions()
+            audioArray: samples,
+            decodeOptions: decodingOptions(language: language)
         )
         return results.map(\.text).joined(separator: " ")
     }
 
-    private func decodingOptions() -> DecodingOptions {
+    private func decodingOptions(language: String? = nil) -> DecodingOptions {
         DecodingOptions(
             verbose: false,
             task: .transcribe,
-            language: nil,
-            usePrefillPrompt: false,
+            language: language,
+            usePrefillPrompt: true,
+            detectLanguage: language == nil,
             skipSpecialTokens: true
         )
     }

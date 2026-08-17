@@ -1,6 +1,6 @@
 # DICTATOR
 
-A fun, local macOS dictation app for German and English. It automatically detects the primary language of each recording; switching languages inside one short recording is not reliably supported in v0.1.0.
+A fun, local macOS dictation app for German and English. Each take is locked to German or English from the microphone. Whisper does not translate into the other language.
 
 ## Use
 

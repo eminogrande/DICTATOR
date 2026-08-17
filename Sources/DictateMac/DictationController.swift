@@ -380,11 +380,11 @@ final class DictationController: ObservableObject {
             session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
             transcriptionHUDTitle = "Finalizing, please wait"
             statusText = "Finalizing, please wait"
-            try await transcriber.stopStreamingAndSave(
+            let microphone = try await transcriber.stopStreamingAndSave(
                 to: session.audioURL,
                 systemAudio: systemAudio
             )
-            let rawTranscript = try await transcriber.transcribe(audioURL: session.audioURL)
+            let rawTranscript = try await transcriber.transcribe(samples: microphone)
             let transcript = TranscriptCleaner.clean(rawTranscript)
             guard !transcript.isEmpty else {
                 throw DictationError.emptyTranscript

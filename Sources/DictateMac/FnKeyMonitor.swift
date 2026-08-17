@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import DictateMacCore
 
 @MainActor
@@ -9,11 +10,17 @@ final class FnKeyMonitor {
     private var localFlags: Any?
     private var globalKeys: Any?
     private var localKeys: Any?
+    private var eventTap: CFMachPort?
+    private var tapSource: CFRunLoopSource?
     private var state = FnHoldState()
     private let onAction: (PushToTalkAction) -> Void
+    private let tapOwner = TapOwner()
 
     init(onAction: @escaping (PushToTalkAction) -> Void) {
         self.onAction = onAction
+        tapOwner.handler = { [weak self] in
+            Task { @MainActor in self?.onAction(.toggle) }
+        }
     }
 
     func start() {
@@ -26,11 +33,12 @@ final class FnKeyMonitor {
             return event
         }
         globalKeys = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            Task { @MainActor in self?.handleKey(event) }
+            Task { @MainActor in _ = self?.handleKey(event) }
         }
         localKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKey(event) == true ? nil : event
         }
+        startTap()
     }
 
     func stop() {
@@ -41,6 +49,10 @@ final class FnKeyMonitor {
         localFlags = nil
         globalKeys = nil
         localKeys = nil
+        if let tapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), tapSource, .commonModes) }
+        if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: false) }
+        tapSource = nil
+        eventTap = nil
     }
 
     private func handleFlags(_ event: NSEvent) {
@@ -59,4 +71,35 @@ final class FnKeyMonitor {
         onAction(.toggle)
         return true
     }
+
+    private func startTap() {
+        let owner = Unmanaged.passUnretained(tapOwner).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
+            callback: { _, type, event, userInfo in
+                guard type == .keyDown, let userInfo else {
+                    return Unmanaged.passUnretained(event)
+                }
+                let key = event.getIntegerValueField(.keyboardEventKeycode)
+                if key == 15, event.flags.contains(.maskSecondaryFn) {
+                    Unmanaged<TapOwner>.fromOpaque(userInfo).takeUnretainedValue().handler()
+                    return nil
+                }
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: owner
+        ) else { return }
+        eventTap = tap
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        tapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+}
+
+private final class TapOwner {
+    var handler: () -> Void = {}
 }

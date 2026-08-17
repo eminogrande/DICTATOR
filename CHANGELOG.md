@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.8 — 2026-08-17
+
+- Fn+R meeting mode shows a red **Recording — Fn+R to stop** bar and a **Stop** button at the bottom of the HUD.
+- Swallow Fn+R so the letter R is not typed into the meeting app.
+
+### Rationale
+
+Hold-Fn and Fn+R looked the same. The latch needs its own stop affordance.
+
 ## 0.9.7 — 2026-08-17
 
 - Press **Fn+R** to start or stop a hands-free meeting recording of microphone + Mac audio. A second **Fn+R** transcribes.

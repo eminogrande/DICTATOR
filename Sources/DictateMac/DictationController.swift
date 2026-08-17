@@ -67,6 +67,8 @@ final class DictationController: ObservableObject {
     private var microphoneStartedAt: Date?
 
 
+    var isLatchedRecording: Bool { isRecording && !recordingStartedByFn }
+
     var recordButtonTitle: String {
         isRecording ? "Stop" : "Record"
     }

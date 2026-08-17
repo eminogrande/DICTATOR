@@ -34,13 +34,17 @@ final class TranscriptionHUDController {
 
         let panel = panel ?? makePanel()
         self.panel = panel
-        let layout = desiredLayout(for: presentation, isRecording: controller.isRecording)
+        let latched = controller.isLatchedRecording
+        let layout = desiredLayout(for: presentation, isRecording: controller.isRecording, isLatched: latched)
         model.height = layout.panelHeight
         model.textViewportHeight = layout.textViewportHeight
         model.shouldFollowBottom = layout.textOverflows
         model.showPhaseProgress = !controller.isRecording && !presentation.title.isEmpty
+        model.isLatchedRecording = latched
+        model.onStop = { [weak controller] in controller?.toggleRecording() }
         model.presentation = presentation
         panel.setContentSize(NSSize(width: 680, height: layout.panelHeight))
+        panel.ignoresMouseEvents = !latched
         position(panel)
         panel.orderFrontRegardless()
     }
@@ -74,7 +78,7 @@ final class TranscriptionHUDController {
         ))
     }
 
-    private func desiredLayout(for presentation: TranscriptionHUDPresentation, isRecording: Bool) -> TranscriptionHUDLayoutResult {
+    private func desiredLayout(for presentation: TranscriptionHUDPresentation, isRecording: Bool, isLatched: Bool) -> TranscriptionHUDLayoutResult {
         let font = NSFont.systemFont(ofSize: 22)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 5
@@ -95,7 +99,7 @@ final class TranscriptionHUDController {
         return TranscriptionHUDLayout.make(
             textHeight: textHeight > 0 ? textHeight + 6 : 0,
             hasHeader: presentation.audio.audioDuration > 0,
-            hasFooter: !isRecording && !presentation.title.isEmpty,
+            hasFooter: isLatched || (!isRecording && !presentation.title.isEmpty),
             screenHeight: screenHeight
         )
     }
@@ -112,6 +116,8 @@ private final class TranscriptionHUDModel: ObservableObject {
     @Published var textViewportHeight: CGFloat = 0
     @Published var shouldFollowBottom = false
     @Published var showPhaseProgress = false
+    @Published var isLatchedRecording = false
+    var onStop: (() -> Void)?
 }
 
 private struct TranscriptionHUDView: View {
@@ -134,7 +140,25 @@ private struct TranscriptionHUDView: View {
                 .clipped()
             }
 
-            if model.showPhaseProgress {
+            if model.isLatchedRecording {
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 14, height: 14)
+                    Text("Recording — Fn+R to stop")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Button("Stop") {
+                        model.onStop?()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.red)
+                }
+                .frame(height: TranscriptionHUDLayout.footerHeight, alignment: .leading)
+            } else if model.showPhaseProgress {
                 HStack(spacing: 12) {
                     ProgressView()
                         .controlSize(.large)

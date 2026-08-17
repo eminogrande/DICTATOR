@@ -79,7 +79,7 @@ final class TranscriptionHUDController {
     }
 
     private func desiredLayout(for presentation: TranscriptionHUDPresentation, isRecording: Bool, isLatched: Bool) -> TranscriptionHUDLayoutResult {
-        let font = NSFont.monospacedSystemFont(ofSize: 22, weight: .regular)
+        let font = NSFont.monospacedSystemFont(ofSize: 17, weight: .regular)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 5
         let measure: (String) -> CGFloat = { text in
@@ -146,7 +146,7 @@ private struct TranscriptionHUDView: View {
                         .fill(Color.red)
                         .frame(width: 14, height: 14)
                     Text("Recording — Fn+R to stop")
-                        .font(.system(size: 22, weight: .medium, design: .monospaced))
+                        .font(.system(size: 17, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Spacer(minLength: 8)
@@ -164,7 +164,7 @@ private struct TranscriptionHUDView: View {
                         .controlSize(.large)
                         .tint(.white)
                     Text(model.presentation.title)
-                        .font(.system(size: 22, weight: .medium, design: .monospaced))
+                        .font(.system(size: 17, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                     Spacer(minLength: 0)
@@ -255,7 +255,7 @@ private struct LiveTranscriptContent: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.system(size: 22, weight: .regular, design: .monospaced))
+            .font(.system(size: 17, weight: .regular, design: .monospaced))
             .lineSpacing(5)
             .onAppear {
                 proxy.scrollTo(

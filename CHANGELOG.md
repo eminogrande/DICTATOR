@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.10 — 2026-08-17
+
+- One font size across the HUD: 17pt monospaced for transcript, recording bar, wait phase, and timecode.
+
+### Rationale
+
+Sizes kept drifting between sections. One size, one font, everywhere.
+
 ## 0.9.9 — 2026-08-17
 
 - Use the same monospaced font for transcript text, the recording bar, and the **Transcribing locally, please wait…** phase. Matches the timer/timecode font.

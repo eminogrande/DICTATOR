@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2 — 2026-08-17
+
+- Paste the live Whisper transcript on Fn release. Do not run a second full-file transcription when that live text already exists.
+- Keep the file pass only when live text is empty.
+- The saved WAV is unchanged, including mixed meeting audio.
+
+### Rationale
+
+The live decoder already produced the transcript. Waiting 5–10 seconds to transcribe the same WAV again delayed paste without changing the local result.
+
 ## 0.9.1 — 2026-08-17
 
 - Open Brain on the saved graph immediately. Repository checks and Hermes sync no longer block browsing.

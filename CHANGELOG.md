@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.7 — 2026-08-17
+
+- Press **Fn+R** to start or stop a hands-free meeting recording of microphone + Mac audio. A second **Fn+R** transcribes.
+- Fn+R asks for Screen & System Audio Recording if needed and retries Mac-audio capture once if the first start fails mid-meeting.
+- After stop, the HUD says **Transcribing locally, please wait…**
+
+### Rationale
+
+Holding Fn for a whole meeting is unusable. Device audio already existed; the missing piece was a latch that can start after a call is already running.
+
 ## 0.9.6 — 2026-08-17
 
 - After Fn release, show **Finalizing, please wait** with a large spinner at the bottom of the HUD, below the transcript.

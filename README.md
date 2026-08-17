@@ -8,8 +8,8 @@ A fun, local macOS dictation app. Each take is transcribed in the language Whisp
 2. Grant **Microphone** and **Accessibility** when prompted. Accessibility is required for the global Fn trigger and auto-paste.
 3. Put the cursor in any text field.
 4. Choose **Auto-Paste On** to insert at the current cursor, or **Off** to copy only.
-5. Hold **Fn/Globe** while speaking. DICTATOR shows a real white waveform, decoded/recorded time, a live decoder-position marker, and stable confirmed/provisional text. Release Fn for the final local pass. The menu’s **Record/Stop** button remains available as a fallback.
-6. For meetings, enable **Meeting audio: microphone + Mac audio** and grant **Screen & System Audio Recording**. The permanent WAV and final transcript then include both sources.
+5. Hold **Fn/Globe** while speaking. Release Fn for the final local pass. After release the HUD shows **Transcribing locally, please wait…** at the bottom.
+6. Press **Fn+R** to start a hands-free meeting recording of microphone + Mac audio. Press **Fn+R** again to stop and transcribe. This works while you are already in a meeting. Grant **Screen & System Audio Recording** when asked. The menu **Record/Stop** button remains a fallback.
 
 If auto-paste is unavailable, the transcript remains on the clipboard. Click **Enable Accessibility…** in the menu and allow DICTATOR under **System Settings → Privacy & Security → Accessibility**.
 

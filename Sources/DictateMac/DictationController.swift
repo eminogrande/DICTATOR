@@ -126,7 +126,7 @@ final class DictationController: ObservableObject {
             stopRecording()
         } else {
             Task {
-                await startRecording(triggeredByFn: false)
+                await startRecording(triggeredByFn: false, forceMeetingAudio: false)
             }
         }
     }
@@ -217,7 +217,7 @@ final class DictationController: ObservableObject {
             recordingStartedByFn = true
             fnReleasedDuringStartup = false
             Task {
-                await startRecording(triggeredByFn: true)
+                await startRecording(triggeredByFn: true, forceMeetingAudio: false)
             }
         case .stop:
             guard recordingStartedByFn else {
@@ -228,10 +228,24 @@ final class DictationController: ObservableObject {
             } else {
                 stopRecording()
             }
+        case .toggle:
+            switch MeetingToggle.result(isRecording: isRecording || operationInProgress, startedByHold: recordingStartedByFn) {
+            case .start:
+                guard modelReady else { return }
+                Task {
+                    await startRecording(triggeredByFn: false, forceMeetingAudio: true)
+                }
+            case .latch:
+                recordingStartedByFn = false
+                fnReleasedDuringStartup = false
+                statusText = "Recording microphone + Mac audio — Fn+R to stop"
+            case .stop:
+                stopRecording()
+            }
         }
     }
 
-    private func startRecording(triggeredByFn: Bool) async {
+    private func startRecording(triggeredByFn: Bool, forceMeetingAudio: Bool) async {
         guard modelReady, !operationInProgress, let archive else {
             return
         }
@@ -285,35 +299,47 @@ final class DictationController: ObservableObject {
                 throw error
             }
 
-            if meetingCaptureEnabled, systemAudioGranted {
-                let capture = SystemAudioCapture()
-                do {
-                    try await capture.start()
-                    systemAudioCapture = capture
-                    systemAudioGranted = true
-                } catch {
-                    systemAudioCapture = nil
-                    transcriptionHUDTitle = "Mac audio unavailable — microphone only"
+            let captureMeeting = meetingCaptureEnabled || forceMeetingAudio
+            if captureMeeting {
+                if !systemAudioGranted {
+                    systemAudioGranted = SystemAudioCapture.requestPermission()
                 }
-            } else if meetingCaptureEnabled {
-                transcriptionHUDTitle = "Mac audio permission needed — microphone only"
+                if systemAudioGranted {
+                    var capture = SystemAudioCapture()
+                    do {
+                        try await capture.start()
+                        systemAudioCapture = capture
+                    } catch {
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        capture = SystemAudioCapture()
+                        do {
+                            try await capture.start()
+                            systemAudioCapture = capture
+                        } catch {
+                            systemAudioCapture = nil
+                            transcriptionHUDTitle = "Mac audio unavailable — microphone only"
+                        }
+                    }
+                } else {
+                    transcriptionHUDTitle = "Mac audio permission needed — microphone only"
+                }
             }
 
             currentSessionAutoPasteEnabled = autoPasteEnabled
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
-            session.metadata.meetingCaptureEnabled = meetingCaptureEnabled
+            session.metadata.meetingCaptureEnabled = captureMeeting
             session.metadata.systemAudioCaptured = systemAudioCapture != nil
             try archive.writeMetadata(for: session)
             currentSession = session
             isRecording = true
             isBusy = false
             operationInProgress = false
-            if meetingCaptureEnabled, systemAudioCapture != nil {
+            if captureMeeting, systemAudioCapture != nil {
                 statusText = triggeredByFn
                     ? "Recording microphone + Mac audio — release Fn to stop"
-                    : "Recording microphone + Mac audio"
+                    : "Recording microphone + Mac audio — Fn+R to stop"
             } else {
-                statusText = triggeredByFn ? "Recording — release Fn to stop" : "Recording"
+                statusText = triggeredByFn ? "Recording — release Fn to stop" : "Recording — Fn+R to stop"
             }
             if triggeredByFn && fnReleasedDuringStartup {
                 fnReleasedDuringStartup = false
@@ -378,8 +404,8 @@ final class DictationController: ObservableObject {
             self.systemAudioCapture = nil
             self.microphoneStartedAt = nil
             session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
-            transcriptionHUDTitle = "Finalizing, please wait"
-            statusText = "Finalizing, please wait"
+            transcriptionHUDTitle = "Transcribing locally, please wait…"
+            statusText = "Transcribing locally, please wait…"
             let microphone = try await transcriber.stopStreamingAndSave(
                 to: session.audioURL,
                 systemAudio: systemAudio

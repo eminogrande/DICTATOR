@@ -3,8 +3,12 @@ import DictateMacCore
 
 @MainActor
 final class FnKeyMonitor {
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    static let rKeyCode: UInt16 = 15
+
+    private var globalFlags: Any?
+    private var localFlags: Any?
+    private var globalKeys: Any?
+    private var localKeys: Any?
     private var state = FnHoldState()
     private let onAction: (PushToTalkAction) -> Void
 
@@ -13,39 +17,46 @@ final class FnKeyMonitor {
     }
 
     func start() {
-        guard globalMonitor == nil, localMonitor == nil else {
-            return
+        guard globalFlags == nil else { return }
+        globalFlags = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            Task { @MainActor in self?.handleFlags(event) }
         }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            Task { @MainActor in
-                self?.handle(event)
-            }
-        }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.handle(event)
+        localFlags = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.handleFlags(event)
             return event
+        }
+        globalKeys = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in self?.handleKey(event) }
+        }
+        localKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleKey(event) == true ? nil : event
         }
     }
 
     func stop() {
-        if let globalMonitor {
-            NSEvent.removeMonitor(globalMonitor)
+        for monitor in [globalFlags, localFlags, globalKeys, localKeys] {
+            if let monitor { NSEvent.removeMonitor(monitor) }
         }
-        if let localMonitor {
-            NSEvent.removeMonitor(localMonitor)
-        }
-        globalMonitor = nil
-        localMonitor = nil
+        globalFlags = nil
+        localFlags = nil
+        globalKeys = nil
+        localKeys = nil
     }
 
-    private func handle(_ event: NSEvent) {
+    private func handleFlags(_ event: NSEvent) {
         let action = state.handle(
             keyCode: event.keyCode,
             functionFlag: event.modifierFlags.contains(.function)
         )
-        guard action != .none else {
-            return
+        if action != .none { onAction(action) }
+    }
+
+    @discardableResult
+    private func handleKey(_ event: NSEvent) -> Bool {
+        guard event.keyCode == Self.rKeyCode, event.modifierFlags.contains(.function) else {
+            return false
         }
-        onAction(action)
+        onAction(.toggle)
+        return true
     }
 }

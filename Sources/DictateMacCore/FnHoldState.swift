@@ -2,6 +2,7 @@ public enum PushToTalkAction: Equatable, Sendable {
     case none
     case start
     case stop
+    case toggle
 }
 
 public struct FnHoldState: Sendable {

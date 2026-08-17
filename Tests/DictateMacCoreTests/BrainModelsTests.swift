@@ -26,4 +26,12 @@ final class BrainModelsTests: XCTestCase {
         XCTAssertEqual(response.repositories.updated, 2)
         XCTAssertEqual(response.repositories.failed, 1)
     }
+
+    func testHermesSyncDecodesImportedCounts() throws {
+        let data = Data(#"{"graphPath":"/tmp/graph.json","nodes":12,"edges":4,"nodeTypes":{"memory":2,"session":1},"imported":{"documents":0,"memories":2,"sessions":1,"turns":3}}"#.utf8)
+        let response = try JSONDecoder().decode(BrainHermesSyncResponse.self, from: data)
+        XCTAssertEqual(response.imported.memories, 2)
+        XCTAssertEqual(response.imported.sessions, 1)
+        XCTAssertEqual(response.imported.turns, 3)
+    }
 }

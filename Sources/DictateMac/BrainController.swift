@@ -14,11 +14,8 @@ final class BrainController: ObservableObject {
     @Published private(set) var isBusy = false
 
     func refresh() {
-        Task {
-            await updateManagedRepositories(force: false, reportResult: false)
-            await runStats()
-            await loadHome()
-        }
+        Task { await loadVisibleState() }
+        Task { await bootstrapSources() }
     }
 
     func updateManagedRepositories() {
@@ -103,16 +100,17 @@ final class BrainController: ObservableObject {
     }
 
     func syncHermesMemory() {
-        let directory = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".hermes/memories", isDirectory: true)
-        let urls = ["MEMORY.md", "USER.md"]
-            .map(directory.appendingPathComponent)
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-        guard !urls.isEmpty else {
-            status = "No Hermes memory files found"
-            return
+        Task {
+            await perform("Syncing Hermes memory…") {
+                try await self.importHermesSources()
+            }
+            await runStats()
+            if section == .memory {
+                await browse(type: "memory", limit: 60)
+            } else if section == .session {
+                await browse(type: "session", limit: 60)
+            }
         }
-        importSources(urls)
     }
 
     func importText(label: String, text: String) {
@@ -142,6 +140,23 @@ final class BrainController: ObservableObject {
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
+    private func loadVisibleState() async {
+        await runStats()
+        if section == .home {
+            await loadHome()
+        } else if let type = section.browseType {
+            await browse(type: type, limit: 60)
+        }
+    }
+
+    private func bootstrapSources() async {
+        await perform("Syncing Hermes memory…", blocksUI: false) {
+            try await self.importHermesSources()
+        }
+        await updateManagedRepositories(force: false, reportResult: true)
+        await runStats()
+    }
+
     private func loadHome() async {
         await browse(type: "recording", limit: 12, statusText: "Recent recordings")
     }
@@ -157,7 +172,7 @@ final class BrainController: ObservableObject {
     }
 
     private func runStats() async {
-        await perform("Refreshing Brain…") {
+        await perform("Refreshing Brain…", blocksUI: false) {
             let data = try await BrainSidecar.run(["stats"])
             self.stats = try JSONDecoder().decode(BrainStats.self, from: data)
             self.status = "\(self.stats?.nodes ?? 0) nodes · \(self.stats?.edges ?? 0) connections"
@@ -165,7 +180,7 @@ final class BrainController: ObservableObject {
     }
 
     private func updateManagedRepositories(force: Bool, reportResult: Bool) async {
-        await perform(force ? "Updating repositories…" : "Checking repositories…") {
+        await perform(force ? "Updating repositories…" : "Checking repositories…", blocksUI: force) {
             let arguments = force ? ["managed-repos-refresh", "--force"] : ["managed-repos-refresh"]
             let data = try await BrainSidecar.run(arguments)
             let response = try JSONDecoder().decode(BrainManagedRefreshResponse.self, from: data)
@@ -193,13 +208,22 @@ final class BrainController: ObservableObject {
         }
     }
 
-    private func perform(_ busyStatus: String, operation: @escaping @MainActor () async throws -> Void) async {
-        guard !isBusy else { return }
-        isBusy = true
+    private func importHermesSources() async throws {
+        let data = try await BrainSidecar.run(["hermes-sync"])
+        let response = try JSONDecoder().decode(BrainHermesSyncResponse.self, from: data)
+        let imported = response.imported
+        status = "Hermes: \(imported.memories) memories · \(imported.sessions) sessions"
+    }
+
+    private func perform(_ busyStatus: String, blocksUI: Bool = true, operation: @escaping @MainActor () async throws -> Void) async {
+        if blocksUI {
+            guard !isBusy else { return }
+            isBusy = true
+        }
         status = busyStatus
         do { try await operation() }
         catch { status = "Brain error: \(error.localizedDescription)" }
-        isBusy = false
+        if blocksUI { isBusy = false }
     }
 }
 

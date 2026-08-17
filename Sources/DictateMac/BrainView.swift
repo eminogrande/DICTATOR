@@ -203,7 +203,15 @@ struct BrainView: View {
                 Text("Recent recordings")
                     .font(.system(size: 17, weight: .semibold))
 
-                if controller.results.isEmpty && !controller.isBusy {
+                if controller.results.isEmpty && controller.isBusy {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text(controller.status)
+                            .font(.system(size: 17))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                } else if controller.results.isEmpty && !controller.isBusy {
                     emptyState("No recordings yet", icon: "waveform")
                 } else {
                     ForEach(controller.results) { resultRow($0) }
@@ -216,7 +224,16 @@ struct BrainView: View {
     private var resultList: some View {
         ScrollView {
             LazyVStack(spacing: 6) {
-                if controller.results.isEmpty && !controller.isBusy {
+                if controller.results.isEmpty && controller.isBusy {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text(controller.status)
+                            .font(.system(size: 17))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 220)
+                } else if controller.results.isEmpty && !controller.isBusy {
                     emptyState(controller.section == .search ? "No matching evidence" : "No sources in this section", icon: controller.section.systemImage)
                 } else {
                     ForEach(controller.results) { resultRow($0) }

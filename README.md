@@ -40,7 +40,7 @@ Use **Open Archive** in the menu to open saved dictations.
 
 Choose **Open Brain…** to browse recordings, transcripts, agent sessions, Hermes memories, imported documents, repositories, source files, and functions, or search them together. Search combines lexical and local multilingual embeddings, then returns deduplicated canonical sources. Add direct text, import `.txt`, `.md`, `.json`, or `.jsonl` exports, synchronize Hermes memory, or clone/update a GitHub repository. Provenance, roles, session order, timestamps, paths, branches, and commit SHAs remain attached to their sources. The canonical graph lives under `~/Library/Application Support/DictateMac/Brain/`.
 
-Brain manages a deterministic corpus of the ten most active nonarchived, nonfork `nuri-com` repositories measured over 90 days. Opening Brain checks at most once every 24 hours. **Update Repositories** checks immediately. Only changed default-branch commits are reindexed; deleted or renamed files and functions are removed. Repository failures are isolated and never block dictation.
+Brain manages a deterministic corpus of the ten most active nonarchived, nonfork `nuri-com` repositories measured over 90 days. Opening Brain shows the saved graph immediately, then syncs Hermes memory and checks repositories in the background at most once every 24 hours. **Update Repositories** checks immediately. Only changed default-branch commits are reindexed; deleted or renamed files and functions are removed. Repository failures are isolated and never block dictation.
 
 ### Hermes Agent compatibility
 

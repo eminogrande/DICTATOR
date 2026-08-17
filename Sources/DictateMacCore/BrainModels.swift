@@ -104,3 +104,18 @@ public struct BrainManagedRefresh: Codable, Equatable, Sendable {
 public struct BrainManagedRefreshResponse: Codable, Equatable, Sendable {
     public let repositories: BrainManagedRefresh
 }
+
+public struct BrainHermesImport: Codable, Equatable, Sendable {
+    public let documents: Int
+    public let memories: Int
+    public let sessions: Int
+    public let turns: Int
+}
+
+public struct BrainHermesSyncResponse: Codable, Equatable, Sendable {
+    public let graphPath: String
+    public let nodes: Int
+    public let edges: Int
+    public let nodeTypes: [String: Int]
+    public let imported: BrainHermesImport
+}

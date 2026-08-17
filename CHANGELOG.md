@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1 — 2026-08-17
+
+- Open Brain on the saved graph immediately. Repository checks and Hermes sync no longer block browsing.
+- Stop rewriting the graph on search, browse, stats, and Hermes MCP search.
+- Skip embedding rebuilds during repository refresh so Brain cannot hang for tens of minutes on open.
+- Sync Hermes `MEMORY.md`, `USER.md`, and saved agent sessions through **Sync Hermes Memory**, and do that automatically when Brain opens.
+- Show the current Brain status in the empty list instead of a blank 0-item pane.
+
+### Rationale
+
+The graph already contained the ten repositories. The window looked empty because open waited on embedding and dropped every browse. Hermes was configured; the files were never imported while that check ran.
+
 ## 0.9.0 — 2026-08-14
 
 - Add local multilingual hybrid Brain retrieval with source-backed semantic indexes and canonical evidence packing.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.9 — 2026-08-17
+
+- Use the same monospaced font for transcript text, the recording bar, and the **Transcribing locally, please wait…** phase. Matches the timer/timecode font.
+
+### Rationale
+
+The HUD mixed three fonts. One font reads calmer and matches the waveform timecode.
+
 ## 0.9.8 — 2026-08-17
 
 - Fn+R meeting mode shows a red **Recording — Fn+R to stop** bar and a **Stop** button at the bottom of the HUD.

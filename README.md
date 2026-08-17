@@ -8,8 +8,8 @@ A fun, local macOS dictation app for German and English. It automatically detect
 2. Grant **Microphone** and **Accessibility** when prompted. Accessibility is required for the global Fn trigger and auto-paste.
 3. Put the cursor in any text field.
 4. Choose **Auto-Paste On** to insert at the current cursor, or **Off** to copy only.
-5. Hold **Fn/Globe** while speaking. DICTATOR shows a real white waveform, decoded/recorded time, a live decoder-position marker, and stable confirmed/provisional text. Release Fn to save the WAV and paste that live transcript. A second full-file transcription runs only if live text is empty. The menu’s **Record/Stop** button remains available as a fallback.
-6. For meetings, enable **Meeting audio: microphone + Mac audio** and grant **Screen & System Audio Recording**. The permanent WAV includes both sources. The pasted transcript is the live microphone text.
+5. Hold **Fn/Globe** while speaking. DICTATOR shows a real white waveform, decoded/recorded time, a live decoder-position marker, and stable confirmed/provisional text. Release Fn for the final local pass. The menu’s **Record/Stop** button remains available as a fallback.
+6. For meetings, enable **Meeting audio: microphone + Mac audio** and grant **Screen & System Audio Recording**. The permanent WAV and final transcript then include both sources.
 
 If auto-paste is unavailable, the transcript remains on the clipboard. Click **Enable Accessibility…** in the menu and allow DICTATOR under **System Settings → Privacy & Security → Accessibility**.
 

@@ -1,14 +1,12 @@
 # Changelog
 
-## 0.9.2 — 2026-08-17
+## 0.9.3 — 2026-08-17
 
-- Paste the live Whisper transcript on Fn release. Do not run a second full-file transcription when that live text already exists.
-- Keep the file pass only when live text is empty.
-- The saved WAV is unchanged, including mixed meeting audio.
+- Restore the full-file Whisper pass after Fn release. Live text is a preview only and is not pasted.
 
 ### Rationale
 
-The live decoder already produced the transcript. Waiting 5–10 seconds to transcribe the same WAV again delayed paste without changing the local result.
+Pasting the live decoder on Fn release cut the transcript in the middle. The saved WAV pass is slower and complete.
 
 ## 0.9.1 — 2026-08-17
 

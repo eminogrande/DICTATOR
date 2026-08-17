@@ -27,10 +27,6 @@ public enum LiveTranscriptText {
         return LiveTranscriptSnapshot(confirmed: confirmed, provisional: provisional)
     }
 
-    public static func deliveryTranscript(confirmed: String, provisional: String) -> String {
-        TranscriptCleaner.clean([confirmed, provisional].joined(separator: " "))
-    }
-
     private static func join(_ values: [String]) -> String {
         values
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

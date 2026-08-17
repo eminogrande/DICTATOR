@@ -48,15 +48,4 @@ final class LiveTranscriptTests: XCTestCase {
             LiveTranscriptSnapshot(confirmed: "", provisional: "")
         )
     }
-
-    func testDeliveryTranscriptUsesLiveTextWithoutASecondPass() {
-        XCTAssertEqual(
-            LiveTranscriptText.deliveryTranscript(confirmed: "Das ist Nuri.", provisional: "weiter"),
-            "Das ist Nuri. weiter"
-        )
-        XCTAssertEqual(
-            LiveTranscriptText.deliveryTranscript(confirmed: "  ", provisional: ""),
-            ""
-        )
-    }
 }

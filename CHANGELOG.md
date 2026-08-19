@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.11 — 2026-08-19
+
+- Native menu bar menu: Record Meeting (Fn+R), Recent Dictations, Open Brain, Settings, Quit. Clean like the reference.
+- Settings moved to a proper window; the menu no longer dumps every toggle.
+- Brain search (CLI + MCP) auto-ingests new dictations before searching — a fresh recording is findable seconds after Fn release without manual sync.
+- Bundles the SQLite-fast Brain: in-app search now uses the ~200ms index instead of the 58s JSON scan.
+
+### Rationale
+
+The popover mixed controls, status, transcripts, and API keys in one endless list. The menu should be a menu. The brain felt dead because fast search skipped archive ingest and the bundled engine predated the SQLite index.
+
 ## 0.9.10 — 2026-08-17
 
 - One font size across the HUD: 17pt monospaced for transcript, recording bar, wait phase, and timecode.

@@ -69,6 +69,8 @@ final class DictationController: ObservableObject {
 
     var isLatchedRecording: Bool { isRecording && !recordingStartedByFn }
 
+    @Published var isLatchedRecordingPublished: Bool = false
+
     var recordButtonTitle: String {
         isRecording ? "Stop" : "Record"
     }
@@ -334,6 +336,7 @@ final class DictationController: ObservableObject {
             try archive.writeMetadata(for: session)
             currentSession = session
             isRecording = true
+            isLatchedRecordingPublished = !triggeredByFn
             isBusy = false
             operationInProgress = false
             if captureMeeting, systemAudioCapture != nil {
@@ -367,6 +370,7 @@ final class DictationController: ObservableObject {
         recordingStartedByFn = false
         fnReleasedDuringStartup = false
         isRecording = false
+        isLatchedRecordingPublished = false
         isBusy = true
         operationInProgress = true
         statusText = "Saving recording"

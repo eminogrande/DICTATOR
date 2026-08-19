@@ -450,9 +450,12 @@ final class DictationController: ObservableObject {
             liveProvisionalText = ""
             transcriptionHUDTitle = "Copying transcript"
             statusText = "Delivering final transcript"
+            // Re-resolve the target at delivery time: paste into whatever the user
+            // is working in NOW, not where the take started.
+            let deliveryTarget = targetTracker.targetApplication() ?? targetApplication
             let delivery = await TranscriptDeliveryService.deliver(
                 finalTranscript,
-                to: targetApplication,
+                to: deliveryTarget,
                 mode: AutoPastePolicy.deliveryMode(isEnabled: currentSessionAutoPasteEnabled)
             )
 

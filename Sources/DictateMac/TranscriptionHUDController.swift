@@ -65,7 +65,8 @@ final class TranscriptionHUDController {
         model.onStop = { [weak controller] in controller?.toggleRecording() }
         model.presentation = presentation
         panel.setContentSize(NSSize(width: 680, height: layout.panelHeight))
-        panel.ignoresMouseEvents = !latched
+        // Clickable whenever a footer button exists (recording Stop or wait-phase Hide).
+        panel.ignoresMouseEvents = !(latched || model.showPhaseProgress)
         position(panel)
         panel.orderFrontRegardless()
     }
@@ -199,6 +200,15 @@ private struct TranscriptionHUDView: View {
                         .foregroundStyle(.white)
                         .lineLimit(2)
                     Spacer(minLength: 0)
+                    Button {
+                        model.isHiddenByUser = true
+                    } label: {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: 17))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .help("Hide — transcription continues in the background; copy from the DICTATOR menu when done")
                 }
                 .frame(height: TranscriptionHUDLayout.footerHeight, alignment: .leading)
             }

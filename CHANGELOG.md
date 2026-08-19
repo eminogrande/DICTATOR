@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.13 — 2026-08-19
+
+- Hide button also in the "Transcribing locally, please wait…" phase: hide it, keep working; transcription runs in the background.
+- Menu bar shows a green clipboard icon when the transcript is ready; click it → "Copy Last Transcript".
+- New menu entry "Copy Last Transcript — <preview>" to grab the finished text after hiding the HUD.
+- Auto-Paste now targets the app you are working in at delivery time, not where the take started.
+
+### Rationale
+
+Blocking the user for the whole transcription is unacceptable: long takes froze the workflow. Transcription already ran detached from the UI; the fix is letting the user dismiss the wait phase and retrieve the result from the menu bar — exactly like copy-from-menu in QuickTime-style workflows.
+
 ## 0.9.12 — 2026-08-19
 
 - Recording HUD can be hidden (eye button next to Stop). Recording continues in the background; the menu bar icon stays a red stop button.

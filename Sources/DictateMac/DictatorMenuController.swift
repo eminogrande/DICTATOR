@@ -40,6 +40,13 @@ final class DictatorMenuController: NSObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] latched in self?.updateIcon(isRecording: latched) }
             .store(in: &cancellables)
+        controller.$latestTranscript
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transcript in
+                guard !transcript.isEmpty else { return }
+                self?.showTranscriptReadyIcon()
+            }
+            .store(in: &cancellables)
         updateIcon(isRecording: controller.isRecording)
     }
 
@@ -58,6 +65,16 @@ final class DictatorMenuController: NSObject {
             button.contentTintColor = nil
             button.toolTip = "DICTATOR"
         }
+    }
+
+    /// Green clipboard icon once a transcript is ready — the "done" signal when the HUD is hidden.
+    private func showTranscriptReadyIcon() {
+        guard let button = statusItem.button,
+              controller?.isRecording != true,
+              controller?.isTranscribing != true else { return }
+        button.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Transcript ready")
+        button.contentTintColor = NSColor.systemGreen
+        button.toolTip = "Transcript ready — click to copy"
     }
 
     @objc private func menuAction() {
@@ -84,6 +101,18 @@ final class DictatorMenuController: NSObject {
         let recentItem = menu.addItem(withTitle: "Recent Dictations", action: #selector(openArchiveAction), keyEquivalent: "")
         recentItem.target = self
 
+        let transcript = controller?.latestTranscript ?? ""
+        if !transcript.isEmpty {
+            let preview = transcript.replacingOccurrences(of: "\n", with: " ")
+            let short = preview.count > 40 ? String(preview.prefix(40)) + "…" : preview
+            let copyItem = menu.addItem(
+                withTitle: "Copy Last Transcript — \(short)",
+                action: #selector(copyLastTranscript),
+                keyEquivalent: ""
+            )
+            copyItem.target = self
+        }
+
         menu.addItem(.separator())
 
         let brainItem = menu.addItem(withTitle: "Open Brain", action: #selector(openBrainAction), keyEquivalent: "")
@@ -106,6 +135,12 @@ final class DictatorMenuController: NSObject {
 
     @objc private func openArchiveAction() {
         openArchive()
+    }
+
+    @objc private func copyLastTranscript() {
+        guard let transcript = controller?.latestTranscript, !transcript.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(transcript, forType: .string)
     }
 
     @objc private func openBrainAction() {

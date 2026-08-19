@@ -32,33 +32,43 @@ final class DictatorMenuController: NSObject {
             button.action = #selector(menuAction)
             button.sendAction(on: [.leftMouseUp])
         }
-        rebuildMenu()
-        controller.$statusText
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.rebuildMenu() }
-            .store(in: &cancellables)
         controller.$isRecording
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.rebuildMenu() }
+            .sink { [weak self] recording in self?.updateIcon(isRecording: recording) }
             .store(in: &cancellables)
         controller.$isLatchedRecordingPublished
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.rebuildMenu() }
+            .sink { [weak self] latched in self?.updateIcon(isRecording: latched) }
             .store(in: &cancellables)
+        updateIcon(isRecording: controller.isRecording)
     }
 
     deinit {
         NSStatusBar.system.removeStatusItem(statusItem)
     }
 
+    private func updateIcon(isRecording: Bool) {
+        guard let button = statusItem.button else { return }
+        if isRecording {
+            button.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop recording")
+            button.contentTintColor = .systemRed
+            button.toolTip = "Recording — click to stop"
+        } else {
+            button.image = DictatorAssets.menuIcon
+            button.contentTintColor = nil
+            button.toolTip = "DICTATOR"
+        }
+    }
+
     @objc private func menuAction() {
+        // QuickTime-style: while recording, a click on the icon stops the take directly.
+        if controller?.isRecording == true {
+            controller?.toggleRecording()
+            return
+        }
         statusItem.menu = buildMenu()
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
-    }
-
-    private func rebuildMenu() {
-        // Rebuild lazily on next open; menu is constructed fresh in menuAction.
     }
 
     private func buildMenu() -> NSMenu {

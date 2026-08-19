@@ -20,6 +20,10 @@ final class TranscriptionHUDController {
     }
 
     private func update(from controller: DictationController) {
+        // A new idle state clears any user dismissal so the next take shows the HUD again.
+        if !controller.isRecording && !controller.isTranscribing {
+            model.isHiddenByUser = false
+        }
         let presentation = TranscriptionHUDPresentation.make(
             isVisible: controller.isTranscribing,
             title: controller.transcriptionHUDTitle,
@@ -28,6 +32,23 @@ final class TranscriptionHUDController {
             audio: controller.liveAudioProgress
         )
         guard let presentation else {
+            // Still recording with no live text yet: keep the panel up as a thin recorder.
+            if controller.isRecording && !model.isHiddenByUser {
+                let panel = panel ?? makePanel()
+                self.panel = panel
+                model.isLatchedRecording = controller.isLatchedRecording
+                model.onStop = { [weak controller] in controller?.toggleRecording() }
+                model.presentation = TranscriptionHUDPresentation(title: "", confirmed: "", provisional: "")
+                panel.setContentSize(NSSize(width: 680, height: TranscriptionHUDLayout.footerHeight + 48))
+                panel.ignoresMouseEvents = !controller.isLatchedRecording
+                position(panel)
+                panel.orderFrontRegardless()
+            } else {
+                panel?.orderOut(nil)
+            }
+            return
+        }
+        guard !model.isHiddenByUser else {
             panel?.orderOut(nil)
             return
         }
@@ -117,6 +138,7 @@ private final class TranscriptionHUDModel: ObservableObject {
     @Published var shouldFollowBottom = false
     @Published var showPhaseProgress = false
     @Published var isLatchedRecording = false
+    @Published var isHiddenByUser = false
     var onStop: (() -> Void)?
 }
 
@@ -150,6 +172,15 @@ private struct TranscriptionHUDView: View {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Spacer(minLength: 8)
+                    Button {
+                        model.isHiddenByUser = true
+                    } label: {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: 17))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .help("Hide overlay — recording continues, stop via menu bar icon")
                     Button("Stop") {
                         model.onStop?()
                     }

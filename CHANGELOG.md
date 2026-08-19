@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.12 — 2026-08-19
+
+- Recording HUD can be hidden (eye button next to Stop). Recording continues in the background; the menu bar icon stays a red stop button.
+- Menu bar icon turns into a red stop icon while recording — one click stops the take (QuickTime style), no menu detour.
+- Hiding applies to the current take only; the next recording shows the HUD again.
+
+### Rationale
+
+The floating HUD covered work during long meetings and blocked the machine visually. Stop must always be reachable in one click from the menu bar, even with the HUD hidden.
+
 ## 0.9.11 — 2026-08-19
 
 - Native menu bar menu: Record Meeting (Fn+R), Recent Dictations, Open Brain, Settings, Quit. Clean like the reference.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.14 — 2026-08-20
+
+- Menu bar icon turns red ("waveform") while transcribing in the background — visible activity after clicking Stop.
+- Dropdown now lists the 5 most recent transcripts ("Copy — <headline> — <time>"); clicking one copies it. Hover shows the full text.
+- Visible-HUD flow unchanged: dictate, wait, auto-insert.
+
+### Rationale
+
+After Stop the user needs (1) an at-a-glance signal that work is still happening, and (2) a retrieval path that doesn't require the HUD. The menu is already the retrieval surface; transcripts belong directly in it.
+
 ## 0.9.13 — 2026-08-19
 
 - Hide button also in the "Transcribing locally, please wait…" phase: hide it, keep working; transcription runs in the background.

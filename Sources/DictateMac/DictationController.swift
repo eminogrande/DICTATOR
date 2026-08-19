@@ -142,6 +142,17 @@ final class DictationController: ObservableObject {
         NSWorkspace.shared.open(archive.rootURL)
     }
 
+    /// Recent takes for the menu bar list: headline + time, text attached by the menu.
+    func recentTranscriptsForMenu(limit: Int = 5) -> [(displayTitle: String, text: String)] {
+        guard let archive else { return [] }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return archive.recentTranscripts(limit: limit).map { entry in
+            (displayTitle: "\(entry.headline) — \(formatter.string(from: entry.date))", text: entry.text)
+        }
+    }
+
     func requestAccessibilityPermission() {
         TranscriptDeliveryService.requestAccessibilityPermission()
         refreshAccessibilityPermission()

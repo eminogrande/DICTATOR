@@ -399,6 +399,31 @@ public struct ArchiveStore: Sendable {
         try Data(transcript.utf8).write(to: session.transcriptURL, options: .atomic)
     }
 
+    /// Latest completed takes with their transcript text, newest first — for the menu bar list.
+    public func recentTranscripts(limit: Int = 5) -> [(id: String, headline: String, text: String, date: Date)] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil)) ?? []
+        let metadataFiles = files.filter { $0.pathExtension == "json" && $0.lastPathComponent != "graph.json" }
+        var sessions: [(date: Date, id: String, headline: String, textURL: URL)] = []
+        for file in metadataFiles {
+            guard let metadata = try? MetadataCodec.decode(Data(contentsOf: file)),
+                  metadata.status == .completed,
+                  let headline = metadata.headline else { continue }
+            sessions.append((
+                date: metadata.startedAt,
+                id: file.deletingPathExtension().lastPathComponent,
+                headline: headline,
+                textURL: rootURL.appendingPathComponent(metadata.transcriptFilename)
+            ))
+        }
+        return sessions
+            .sorted { $0.date > $1.date }
+            .prefix(limit)
+            .compactMap { entry in
+                guard let text = try? String(contentsOf: entry.textURL, encoding: .utf8), !text.isEmpty else { return nil }
+                return (id: entry.id, headline: entry.headline, text: text, date: entry.date)
+            }
+    }
+
     public func writeMetadata(for session: DictationSession) throws {
         try write(session.metadata, to: session.metadataURL)
     }

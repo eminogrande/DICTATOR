@@ -40,6 +40,10 @@ final class DictatorMenuController: NSObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] latched in self?.updateIcon(isRecording: latched) }
             .store(in: &cancellables)
+        controller.$isTranscribing
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transcribing in self?.updateTranscribingIcon(isTranscribing: transcribing) }
+            .store(in: &cancellables)
         controller.$latestTranscript
             .receive(on: DispatchQueue.main)
             .sink { [weak self] transcript in
@@ -61,6 +65,20 @@ final class DictatorMenuController: NSObject {
             button.contentTintColor = .systemRed
             button.toolTip = "Recording — click to stop"
         } else {
+            button.image = DictatorAssets.menuIcon
+            button.contentTintColor = nil
+            button.toolTip = "DICTATOR"
+        }
+    }
+
+    /// Red activity icon while a take is being transcribed in the background.
+    private func updateTranscribingIcon(isTranscribing: Bool) {
+        guard let button = statusItem.button else { return }
+        if isTranscribing {
+            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Transcribing")
+            button.contentTintColor = .systemRed
+            button.toolTip = "Transcribing locally — click to hide/wait or open recent transcripts"
+        } else if controller?.isRecording == false {
             button.image = DictatorAssets.menuIcon
             button.contentTintColor = nil
             button.toolTip = "DICTATOR"
@@ -101,16 +119,21 @@ final class DictatorMenuController: NSObject {
         let recentItem = menu.addItem(withTitle: "Recent Dictations", action: #selector(openArchiveAction), keyEquivalent: "")
         recentItem.target = self
 
-        let transcript = controller?.latestTranscript ?? ""
-        if !transcript.isEmpty {
-            let preview = transcript.replacingOccurrences(of: "\n", with: " ")
-            let short = preview.count > 40 ? String(preview.prefix(40)) + "…" : preview
-            let copyItem = menu.addItem(
-                withTitle: "Copy Last Transcript — \(short)",
-                action: #selector(copyLastTranscript),
-                keyEquivalent: ""
-            )
-            copyItem.target = self
+        // Last transcripts, copyable directly from this menu.
+        let recents = controller?.recentTranscriptsForMenu(limit: 5) ?? []
+        if !recents.isEmpty {
+            let header = menu.addItem(withTitle: "Recent Transcripts", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            for entry in recents {
+                let item = menu.addItem(
+                    withTitle: "Copy — \(entry.displayTitle)",
+                    action: #selector(copyTranscript(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = entry.text
+                item.toolTip = entry.text
+            }
         }
 
         menu.addItem(.separator())
@@ -133,14 +156,14 @@ final class DictatorMenuController: NSObject {
         controller?.toggleRecording()
     }
 
-    @objc private func openArchiveAction() {
-        openArchive()
+    @objc private func copyTranscript(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String, !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
-    @objc private func copyLastTranscript() {
-        guard let transcript = controller?.latestTranscript, !transcript.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(transcript, forType: .string)
+    @objc private func openArchiveAction() {
+        openArchive()
     }
 
     @objc private func openBrainAction() {

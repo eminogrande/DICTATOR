@@ -47,11 +47,17 @@ final class DictationController: ObservableObject {
             UserDefaults.standard.set(openRouterModel, forKey: Self.openRouterModelDefaultsKey)
         }
     }
+    @Published var transcriptionEngine: TranscriptionEngine = .whisperKit {
+        didSet {
+            UserDefaults.standard.set(transcriptionEngine.rawValue, forKey: Self.engineDefaultsKey)
+        }
+    }
 
     private static let autoPasteDefaultsKey = "autoPasteEnabled"
     private static let aiEnhancementDefaultsKey = "aiEnhancementEnabled"
     private static let meetingCaptureDefaultsKey = "meetingCaptureEnabled"
     private static let openRouterModelDefaultsKey = "openRouterModel"
+    private static let engineDefaultsKey = "transcriptionEngine"
 
     private let transcriber = LocalTranscriber()
     private let targetTracker = TargetApplicationTracker()
@@ -105,6 +111,10 @@ final class DictationController: ObservableObject {
         openRouterModel = storedModel == "deepseek/deepseek-v4-flash-latest"
             ? "~deepseek/deepseek-v4-flash-latest"
             : storedModel ?? "~deepseek/deepseek-v4-flash-latest"
+        if let storedEngine = defaults.string(forKey: Self.engineDefaultsKey),
+           let engine = TranscriptionEngine(rawValue: storedEngine), engine.isAvailable {
+            transcriptionEngine = engine
+        }
         hasOpenRouterAPIKey = ((try? keyStore.read()) ?? nil) != nil
 
         do {
@@ -445,7 +455,16 @@ final class DictationController: ObservableObject {
                 to: session.audioURL,
                 systemAudio: systemAudio
             )
-            let rawTranscript = try await transcriber.transcribe(samples: microphone)
+            // Full-file pass: pick the engine the user selected. Qwen3-ASR reads the
+            // saved WAV directly; WhisperKit keeps its in-process samples path.
+            let rawTranscript: String
+            if transcriptionEngine == .qwen3ASR, session.audioURL.hasDirectoryPath == false {
+                let qwen = try await QwenASRService.transcribe(wavURL: session.audioURL)
+                session.metadata.model = qwen.model
+                rawTranscript = qwen.text
+            } else {
+                rawTranscript = try await transcriber.transcribe(samples: microphone)
+            }
             let transcript = TranscriptCleaner.clean(rawTranscript)
             guard !transcript.isEmpty else {
                 throw DictationError.emptyTranscript

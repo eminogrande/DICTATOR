@@ -40,6 +40,20 @@ struct SettingsView: View {
                     .font(.system(size: 17))
                     .foregroundStyle(.secondary)
 
+                Picker("Transcription engine", selection: $controller.transcriptionEngine) {
+                    ForEach(TranscriptionEngine.allCases) { engine in
+                        Text(engine.displayName)
+                            .tag(engine)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+
+                Text(engineHint)
+                    .font(.system(size: 17))
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
                 DisclosureGroup("Brain-enhanced transcript", isExpanded: $showAISettings) {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Correct names and spelling", isOn: $controller.aiEnhancementEnabled)
@@ -143,5 +157,16 @@ struct SettingsView: View {
     private func saveKey() {
         controller.saveOpenRouterAPIKey(apiKeyDraft)
         apiKeyDraft = ""
+    }
+
+    private var engineHint: String {
+        switch controller.transcriptionEngine {
+        case .whisperKit:
+            "Fast local Whisper large-v3-turbo. Best speed."
+        case .qwen3ASR:
+            controller.transcriptionEngine.isAvailable
+                ? "Best German accuracy (Qwen3-ASR 0.6B via local MLX). Slower than WhisperKit."
+                : "Not installed — run the Tools installer, falling back to WhisperKit."
+        }
     }
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.16 — 2026-08-20
+
+- Transcription engine picker in Settings: WhisperKit (fast, default) or Qwen3-ASR
+  (best German accuracy, mlx-qwen3-asr sidecar venv under
+  ~/Library/Application Support/DictateMac/Tools/asr). Falls back to WhisperKit
+  when the sidecar is missing. Take metadata records which engine produced it.
+- Live preview/HUD stays WhisperKit in both modes; the full-file pass is engine-dependent.
+
 ## 0.9.15 — 2026-08-20
 
 - Fn+A compress mode: hold Fn+A, speak, release Fn — transcript is compressed by local

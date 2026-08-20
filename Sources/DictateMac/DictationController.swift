@@ -47,7 +47,7 @@ final class DictationController: ObservableObject {
             UserDefaults.standard.set(openRouterModel, forKey: Self.openRouterModelDefaultsKey)
         }
     }
-    @Published var transcriptionEngine: TranscriptionEngine = .whisperKit {
+    @Published var transcriptionEngine: TranscriptionEngine = .whisperCpp {
         didSet {
             UserDefaults.standard.set(transcriptionEngine.rawValue, forKey: Self.engineDefaultsKey)
         }
@@ -458,11 +458,16 @@ final class DictationController: ObservableObject {
             // Full-file pass: pick the engine the user selected. Qwen3-ASR reads the
             // saved WAV directly; WhisperKit keeps its in-process samples path.
             let rawTranscript: String
-            if transcriptionEngine == .qwen3ASR, session.audioURL.hasDirectoryPath == false {
+            switch transcriptionEngine {
+            case .qwen3ASR:
                 let qwen = try await QwenASRService.transcribe(wavURL: session.audioURL)
                 session.metadata.model = qwen.model
                 rawTranscript = qwen.text
-            } else {
+            case .whisperCpp:
+                let wcpp = try await WhisperCppService.transcribe(wavURL: session.audioURL)
+                session.metadata.model = wcpp.model
+                rawTranscript = wcpp.text
+            case .whisperKit:
                 rawTranscript = try await transcriber.transcribe(samples: microphone)
             }
             let transcript = TranscriptCleaner.clean(rawTranscript)

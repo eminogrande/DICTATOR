@@ -161,11 +161,15 @@ struct SettingsView: View {
 
     private var engineHint: String {
         switch controller.transcriptionEngine {
+        case .whisperCpp:
+            controller.transcriptionEngine.isAvailable
+                ? "Whisper large-v3-turbo via whisper.cpp (Metal). Fastest full-file pass, German + English."
+                : "Not installed — run the Tools installer, falling back to WhisperKit."
         case .whisperKit:
-            "Fast local Whisper large-v3-turbo. Best speed."
+            "Built-in WhisperKit large-v3_turbo. Always available."
         case .qwen3ASR:
             controller.transcriptionEngine.isAvailable
-                ? "Best German accuracy (Qwen3-ASR 0.6B via local MLX). Slower than WhisperKit."
+                ? "Best German accuracy (Qwen3-ASR 0.6B via local MLX). Slowest of the three."
                 : "Not installed — run the Tools installer, falling back to WhisperKit."
         }
     }

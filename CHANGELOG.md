@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.17 — 2026-08-20
+
+- whisper.cpp engine (default): Whisper large-v3-turbo via whisper.cpp sidecar with Metal —
+  fastest full-file pass (~3x faster than WhisperKit), exact DE/EN auto-detect.
+  Sidecar + model live under ~/Library/Application Support/DictateMac/Tools/wcpp.
+- Engine picker now: whisper.cpp (fastest) / WhisperKit (built-in) / Qwen3-ASR (best German).
+  Parakeet TDT v3 evaluated and rejected: outputs EN/DE code-mix even in the
+  official multilingual build (see docs/ASR_BENCHMARK.md).
+
 ## 0.9.16 — 2026-08-20
 
 - Transcription engine picker in Settings: WhisperKit (fast, default) or Qwen3-ASR

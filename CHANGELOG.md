@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.15 — 2026-08-20
+
+- Fn+A compress mode: hold Fn+A, speak, release Fn — transcript is compressed by local
+  Ollama (qwen3:4b) into a minimal numbered list in the detected language and pasted.
+  Falls back to the full transcript when Ollama is unavailable. Plain Fn behavior unchanged.
+- Record Meeting start reliability: ScreenCaptureKit setup is bounded by a 5s timeout with
+  one retry (mic keeps recording meanwhile), a video frame sink prevents frame-log spam,
+  and Fn+R presses swallowed by an in-flight start now show a status instead of doing
+  nothing. Unified-log timing (subsystem de.emin.DictateMac / Meeting) records each start.
+
 ## 0.9.14 — 2026-08-20
 
 - Menu bar icon turns red ("waveform") while transcribing in the background — visible activity after clicking Stop.

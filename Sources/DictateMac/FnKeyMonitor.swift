@@ -5,6 +5,7 @@ import DictateMacCore
 @MainActor
 final class FnKeyMonitor {
     static let rKeyCode: UInt16 = 15
+    static let aKeyCode: UInt16 = 0
 
     private var globalFlags: Any?
     private var localFlags: Any?
@@ -15,6 +16,12 @@ final class FnKeyMonitor {
     private var state = FnHoldState()
     private let onAction: (PushToTalkAction) -> Void
     private let tapOwner = TapOwner()
+    /// Tracks whether the 'a' key is physically held (for Fn+A compress mode).
+    private var aDown = false
+    /// True while the current Fn-hold session is a compress (Fn+A) session.
+    private var compressSession = false
+    private var globalKeyUp: Any?
+    private var localKeyUp: Any?
 
     init(onAction: @escaping (PushToTalkAction) -> Void) {
         self.onAction = onAction
@@ -38,17 +45,26 @@ final class FnKeyMonitor {
         localKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handleKey(event) == true ? nil : event
         }
+        globalKeyUp = NSEvent.addGlobalMonitorForEvents(matching: .keyUp) { [weak self] event in
+            Task { @MainActor in self?.handleKeyUp(event) }
+        }
+        localKeyUp = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+            self?.handleKeyUp(event)
+            return event
+        }
         startTap()
     }
 
     func stop() {
-        for monitor in [globalFlags, localFlags, globalKeys, localKeys] {
+        for monitor in [globalFlags, localFlags, globalKeys, localKeys, globalKeyUp, localKeyUp] {
             if let monitor { NSEvent.removeMonitor(monitor) }
         }
         globalFlags = nil
         localFlags = nil
         globalKeys = nil
         localKeys = nil
+        globalKeyUp = nil
+        localKeyUp = nil
         if let tapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), tapSource, .commonModes) }
         if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: false) }
         tapSource = nil
@@ -60,11 +76,35 @@ final class FnKeyMonitor {
             keyCode: event.keyCode,
             functionFlag: event.modifierFlags.contains(.function)
         )
-        if action != .none { onAction(action) }
+        switch action {
+        case .start:
+            // Fn pressed while 'a' is already held → compress session.
+            compressSession = aDown
+            onAction(compressSession ? .compressStart : .start)
+        case .stop:
+            onAction(compressSession ? .compressStop : .stop)
+            compressSession = false
+        default:
+            break
+        }
+    }
+
+    private func handleKeyUp(_ event: NSEvent) {
+        if event.keyCode == Self.aKeyCode {
+            aDown = false
+        }
     }
 
     @discardableResult
     private func handleKey(_ event: NSEvent) -> Bool {
+        if event.keyCode == Self.aKeyCode {
+            aDown = true
+            // Fn already down + A pressed → upgrade the running hold to compress mode.
+            if state.isFunctionHeld {
+                compressSession = true
+                onAction(.compressStart) // no-op in controller if already recording
+            }
+        }
         guard event.keyCode == Self.rKeyCode, event.modifierFlags.contains(.function) else {
             return false
         }

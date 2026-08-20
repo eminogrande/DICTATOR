@@ -3,6 +3,9 @@ public enum PushToTalkAction: Equatable, Sendable {
     case start
     case stop
     case toggle
+    /// Fn+A: push-to-talk whose result is compressed to a minimal numbered list.
+    case compressStart
+    case compressStop
 }
 
 public struct FnHoldState: Sendable {
@@ -22,4 +25,6 @@ public struct FnHoldState: Sendable {
         isPressed = functionFlag
         return functionFlag ? .start : .stop
     }
+
+    public var isFunctionHeld: Bool { isPressed }
 }

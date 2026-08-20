@@ -24,10 +24,14 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
     private var startedAt: Date?
 
     func start() async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false,
-            onScreenWindowsOnly: false
-        )
+        // Browser meetings (esp. with active screen share) can make these calls hang for
+        // a long time; bound them so the recording always starts, mic-first.
+        let content = try await withTimeout(seconds: 5) {
+            try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: false
+            )
+        }
         guard let display = content.displays.first else {
             throw SystemAudioCaptureError.noDisplay
         }
@@ -48,10 +52,35 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: captureQueue)
+        // Sink for the tiny 2x2 video frames SCK insists on delivering —
+        // without a registered video output SCK spams "stream output NOT found" errors.
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
         self.stream = stream
         samples = []
-        try await stream.startCapture()
+        do {
+            try await withTimeout(seconds: 5) {
+                try await stream.startCapture()
+            }
+        } catch {
+            self.stream = nil
+            throw error
+        }
         startedAt = Date()
+    }
+
+    private func withTimeout<T: Sendable>(seconds: Double, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw SystemAudioCaptureError.timeout(seconds: seconds)
+            }
+            guard let result = try await group.next() else {
+                throw SystemAudioCaptureError.timeout(seconds: seconds)
+            }
+            group.cancelAll()
+            return result
+        }
     }
 
     func stop(relativeTo microphoneStartedAt: Date) async -> CapturedSystemAudio {
@@ -149,8 +178,14 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
 
 private enum SystemAudioCaptureError: LocalizedError {
     case noDisplay
+    case timeout(seconds: Double)
 
     var errorDescription: String? {
-        "No display is available for Mac audio capture."
+        switch self {
+        case .noDisplay:
+            return "No display is available for Mac audio capture."
+        case .timeout(let seconds):
+            return "Mac audio capture did not start within \(Int(seconds))s."
+        }
     }
 }

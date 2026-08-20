@@ -2,11 +2,14 @@ import AppKit
 import Combine
 import DictateMacCore
 import Foundation
+import OSLog
 
 @MainActor
 final class DictationController: ObservableObject {
     @Published private(set) var statusText = "Loading/downloading large-v3-turbo…"
     @Published private(set) var latestTranscript = ""
+    /// True while the current take is an Fn+A compress take (result = minimal numbered list).
+    @Published private(set) var compressMode = false
     @Published private(set) var transcriptionHUDTitle = ""
     @Published private(set) var liveConfirmedText = ""
     @Published private(set) var liveProvisionalText = ""
@@ -225,16 +228,17 @@ final class DictationController: ObservableObject {
         switch action {
         case .none:
             break
-        case .start:
+        case .start, .compressStart:
             guard modelReady, !isRecording, !operationInProgress else {
                 return
             }
             recordingStartedByFn = true
             fnReleasedDuringStartup = false
+            compressMode = action == .compressStart
             Task {
                 await startRecording(triggeredByFn: true, forceMeetingAudio: false)
             }
-        case .stop:
+        case .stop, .compressStop:
             guard recordingStartedByFn else {
                 return
             }
@@ -246,7 +250,14 @@ final class DictationController: ObservableObject {
         case .toggle:
             switch MeetingToggle.result(isRecording: isRecording || operationInProgress, startedByHold: recordingStartedByFn) {
             case .start:
-                guard modelReady else { return }
+                guard modelReady else {
+                    statusText = "Model not ready yet — try again in a moment"
+                    return
+                }
+                if operationInProgress {
+                    statusText = "Still starting the previous recording…"
+                    return
+                }
                 Task {
                     await startRecording(triggeredByFn: false, forceMeetingAudio: true)
                 }
@@ -315,30 +326,37 @@ final class DictationController: ObservableObject {
             }
 
             let captureMeeting = meetingCaptureEnabled || forceMeetingAudio
+            var captureStartLog: [String] = []
             if captureMeeting {
+                let t0 = Date()
                 if !systemAudioGranted {
                     systemAudioGranted = SystemAudioCapture.requestPermission()
+                    captureStartLog.append(systemAudioGranted ? "permission-ok" : "permission-denied")
                 }
                 if systemAudioGranted {
                     var capture = SystemAudioCapture()
                     do {
                         try await capture.start()
                         systemAudioCapture = capture
+                        captureStartLog.append("started+\(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
                     } catch {
                         try? await Task.sleep(nanoseconds: 250_000_000)
                         capture = SystemAudioCapture()
                         do {
                             try await capture.start()
                             systemAudioCapture = capture
+                            captureStartLog.append("retry-ok+\(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
                         } catch {
                             systemAudioCapture = nil
                             transcriptionHUDTitle = "Mac audio unavailable — microphone only"
+                            captureStartLog.append("failed(\(error.localizedDescription))")
                         }
                     }
                 } else {
                     transcriptionHUDTitle = "Mac audio permission needed — microphone only"
                 }
             }
+            Logger(subsystem: "de.emin.DictateMac", category: "Meeting").notice("meeting start: \(captureMeeting) [\(captureStartLog.joined(separator: ","))]")
 
             currentSessionAutoPasteEnabled = autoPasteEnabled
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
@@ -455,9 +473,25 @@ final class DictationController: ObservableObject {
                 for: session
             )
             currentSession = session
-            latestTranscript = finalTranscript
+
+            // Fn+A: compress to a minimal numbered list before delivering.
+            var deliveredText = finalTranscript
+            if compressMode {
+                transcriptionHUDTitle = "Compressing locally"
+                statusText = "Compressing — qwen3 via Ollama"
+                if let compressed = try? await CompressService.compress(finalTranscript) {
+                    deliveredText = compressed.compressed
+                    latestTranscript = compressed.compressed
+                    liveConfirmedText = compressed.compressed
+                } else {
+                    // Fallback: deliver the full transcript rather than nothing.
+                    statusText = "Compression unavailable — full transcript delivered"
+                }
+            }
+            compressMode = false
+            latestTranscript = deliveredText
             usefulContext = enhancementResult.enhancement?.usefulContext ?? []
-            liveConfirmedText = finalTranscript
+            liveConfirmedText = deliveredText
             liveProvisionalText = ""
             transcriptionHUDTitle = "Copying transcript"
             statusText = "Delivering final transcript"
@@ -465,7 +499,7 @@ final class DictationController: ObservableObject {
             // is working in NOW, not where the take started.
             let deliveryTarget = targetTracker.targetApplication() ?? targetApplication
             let delivery = await TranscriptDeliveryService.deliver(
-                finalTranscript,
+                deliveredText,
                 to: deliveryTarget,
                 mode: AutoPastePolicy.deliveryMode(isEnabled: currentSessionAutoPasteEnabled)
             )

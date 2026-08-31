@@ -174,8 +174,6 @@ final class DictationController: ObservableObject {
         fileProgress = 0
         filePartialText = ""
         statusText = "Converting audio…"
-        transcriptionHUDTitle = "Transcribing audio file…"
-        startLivePresentation()
 
         Task {
             defer {
@@ -183,7 +181,6 @@ final class DictationController: ObservableObject {
                 operationInProgress = false
                 isTranscribingFile = false
                 activeFileTask = nil
-                stopLivePresentation()
             }
             guard let archive else {
                 statusText = "Archive unavailable"
@@ -212,7 +209,6 @@ final class DictationController: ObservableObject {
                         Task { @MainActor in
                             self?.fileProgress = snapshot.fraction
                             self?.filePartialText = snapshot.text
-                            self?.liveConfirmedText = snapshot.text
                             self?.statusText = Self.progressLabel(snapshot.fraction)
                         }
                     }
@@ -225,9 +221,6 @@ final class DictationController: ObservableObject {
                 session = try archive.nameAndWriteTranscript(transcript, for: session)
                 currentSession = session
                 latestTranscript = transcript
-                liveConfirmedText = transcript
-                liveProvisionalText = ""
-                transcriptionHUDTitle = "Copying transcript"
                 statusText = "Delivering final transcript"
                 let deliveryTarget = targetTracker.targetApplication()
                 let delivery = await TranscriptDeliveryService.deliver(

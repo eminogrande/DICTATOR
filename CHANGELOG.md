@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.23 — 2026-08-31
+
+- File transcription no longer spawns the borderless HUD overlay (which couldn't be
+  minimized). Progress + partial text + Stop live only in the main window now.
+
 ## 0.9.22 — 2026-08-31
 
 - VAD (Silero) enabled on whisper.cpp passes: silence and music no longer produce

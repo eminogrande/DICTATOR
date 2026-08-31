@@ -26,7 +26,7 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
     }
 
     static var wcppModelURL: URL {
-        Self.toolsURL.appendingPathComponent("wcpp/models/ggml-large-v3-turbo.bin", isDirectory: false)
+        Self.toolsURL.appendingPathComponent("wcpp/models/ggml-large-v3-turbo-q5_0.bin", isDirectory: false)
     }
 
     /// The mlx-qwen3-asr venv under Application Support.

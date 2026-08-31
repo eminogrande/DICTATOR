@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.19 — 2026-08-31
+
+- App now opens visibly: regular activation policy (Dock icon) + a window at launch
+  with Record and "Transcribe Audio File…" buttons front and center (was a hidden
+  menu-bar-only app).
+
 ## 0.9.18 — 2026-08-31
 
 - Audio file upload: menu "Transcribe Audio File…" (⌘O) opens a picker, converts any

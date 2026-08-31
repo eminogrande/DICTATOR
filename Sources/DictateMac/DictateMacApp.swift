@@ -22,7 +22,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(.regular)
         transcriptionHUD = TranscriptionHUDController(controller: dictationController)
         menuController = DictatorMenuController(
             controller: dictationController,
@@ -30,6 +30,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             openArchive: { [weak self] in self?.dictationController.openArchive() },
             openSettings: { [weak self] in self?.showSettings() }
         )
+        // Show a window at launch so the app visibly "opens".
+        showSettings()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

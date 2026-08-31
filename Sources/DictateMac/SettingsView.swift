@@ -1,9 +1,11 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var controller: DictationController
     @State private var apiKeyDraft = ""
     @State private var showAISettings = false
+    @State private var showFilePicker = false
 
     var body: some View {
         ScrollView {
@@ -16,6 +18,27 @@ struct SettingsView: View {
                     Text(controller.statusText)
                         .font(.system(size: 17, weight: .semibold))
                 }
+
+                // Primary actions: record (mic) + transcribe a file.
+                HStack(spacing: 10) {
+                    Button(controller.recordButtonTitle) {
+                        controller.toggleRecording()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!controller.canToggleRecording)
+
+                    Button("Transcribe Audio File…") {
+                        showFilePicker = true
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(controller.isRecording)
+                }
+
+                Text("Record = microphone (release Fn to stop). File = pick an audio file to transcribe.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+
+                Divider()
 
                 Toggle("Auto-Paste", isOn: $controller.autoPasteEnabled)
                     .toggleStyle(.switch)
@@ -147,10 +170,19 @@ struct SettingsView: View {
             .padding(16)
         }
         .font(.system(size: 17))
-        .frame(width: 520, height: 600)
+        .frame(width: 520, height: 640)
         .onAppear {
             controller.refreshAccessibilityPermission()
             controller.refreshRecordingPermissions()
+        }
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [.audio],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                controller.transcribeAudioFile(url)
+            }
         }
     }
 

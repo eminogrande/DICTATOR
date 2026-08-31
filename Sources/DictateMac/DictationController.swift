@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Combine
 import DictateMacCore
 import Foundation
@@ -60,6 +61,7 @@ final class DictationController: ObservableObject {
     private static let engineDefaultsKey = "transcriptionEngine"
 
     private let transcriber = LocalTranscriber()
+    private let micRecorder = AudioRecorder()
     private let targetTracker = TargetApplicationTracker()
     private let evidenceProvider = BrainEvidenceProvider()
     private let keyStore = OpenRouterKeyStore()
@@ -74,6 +76,7 @@ final class DictationController: ObservableObject {
     private var fnReleasedDuringStartup = false
     private var systemAudioCapture: SystemAudioCapture?
     private var microphoneStartedAt: Date?
+    private var streamingActive = false
 
 
     var isLatchedRecording: Bool { isRecording && !recordingStartedByFn }
@@ -322,12 +325,22 @@ final class DictationController: ObservableObject {
 
 
     private func prepareModel() async {
+        // Full-file pass runs via the selected engine. whisper.cpp and Qwen3 are
+        // sidecar processes (no in-process model). WhisperKit is only required for
+        // live streaming preview, which is a nice-to-have — never block recording on it.
+        if transcriptionEngine != .whisperKit {
+            modelReady = true
+            statusText = "Ready — hold Fn to talk"
+            isBusy = false
+            return
+        }
         do {
             try await transcriber.loadModel()
             modelReady = true
             statusText = "Ready — hold Fn to talk"
         } catch {
-            statusText = "Model failed: \(error.localizedDescription)"
+            modelReady = true
+            statusText = "WhisperKit preview unavailable — using whisper.cpp for the pass"
         }
         isBusy = false
     }
@@ -411,16 +424,23 @@ final class DictationController: ObservableObject {
             startLivePresentation()
             microphoneStartedAt = Date()
             do {
-                try await transcriber.startStreaming(
-                    onUpdate: { [weak self] snapshot in
-                        guard let self else { return }
-                        self.liveConfirmedText = snapshot.confirmed
-                        self.liveProvisionalText = snapshot.provisional
-                    },
-                    onAudioUpdate: { [weak self] progress in
-                        self?.liveAudioProgress = progress
-                    }
-                )
+                if transcriptionEngine == .whisperKit {
+                    try await transcriber.startStreaming(
+                        onUpdate: { [weak self] snapshot in
+                            guard let self else { return }
+                            self.liveConfirmedText = snapshot.confirmed
+                            self.liveProvisionalText = snapshot.provisional
+                        },
+                        onAudioUpdate: { [weak self] progress in
+                            self?.liveAudioProgress = progress
+                        }
+                    )
+                    streamingActive = true
+                } else {
+                    // whisper.cpp / Qwen3: record mic directly to WAV, no WhisperKit needed.
+                    try micRecorder.start(at: session.audioURL)
+                    streamingActive = false
+                }
             } catch {
                 session.metadata.status = .failed
                 session.metadata.completedAt = Date()
@@ -549,10 +569,17 @@ final class DictationController: ObservableObject {
             session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
             transcriptionHUDTitle = "Transcribing locally, please wait…"
             statusText = "Transcribing locally, please wait…"
-            let microphone = try await transcriber.stopStreamingAndSave(
-                to: session.audioURL,
-                systemAudio: systemAudio
-            )
+            let microphone: [Float]
+            if streamingActive {
+                microphone = try await transcriber.stopStreamingAndSave(
+                    to: session.audioURL,
+                    systemAudio: systemAudio
+                )
+            } else {
+                micRecorder.stop()
+                microphone = []
+            }
+            streamingActive = false
             // Full-file pass: pick the engine the user selected. Qwen3-ASR reads the
             // saved WAV directly; WhisperKit keeps its in-process samples path.
             let rawTranscript: String

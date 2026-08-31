@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.20 — 2026-08-31
+
+- Recording decoupled from WhisperKit: mic now records directly to WAV via AVAudioRecorder
+  when the engine is whisper.cpp or Qwen3 (the default), so recording + transcription work
+  even if the WhisperKit CoreML model is missing/corrupt or still downloading. WhisperKit
+  streaming is now only used for live preview when explicitly selected; a broken model no
+  longer blocks the app.
+
 ## 0.9.19 — 2026-08-31
 
 - App now opens visibly: regular activation policy (Dock icon) + a window at launch

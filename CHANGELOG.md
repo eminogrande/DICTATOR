@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.22 — 2026-08-31
+
+- VAD (Silero) enabled on whisper.cpp passes: silence and music no longer produce
+  hallucinated garbage segments on long recordings.
+
 ## 0.9.21 — 2026-08-31
 
 - File transcription: live progress bar + partial transcript + Stop button. whisper.cpp

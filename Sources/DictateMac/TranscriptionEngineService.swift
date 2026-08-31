@@ -30,6 +30,10 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
         Self.toolsURL.appendingPathComponent("wcpp/models/ggml-large-v3-turbo-q5_0.bin", isDirectory: false)
     }
 
+    static var wcppVADModelURL: URL {
+        Self.toolsURL.appendingPathComponent("wcpp/models/ggml-silero-v6.2.0.bin", isDirectory: false)
+    }
+
     /// The mlx-qwen3-asr venv under Application Support.
     static var qwenURL: URL {
         Self.toolsURL.appendingPathComponent("asr/bin/mlx-qwen3-asr", isDirectory: false)
@@ -125,6 +129,7 @@ enum WhisperCppService {
             "-f", wavURL.path,
             "-l", "auto",
             "-t", "8", "-p", "4", "-fa",
+            "-vm", TranscriptionEngine.wcppVADModelURL.path, "--vad",
             "-np", "-nt",
             "-otxt", "-of", wavURL.deletingPathExtension().path,
         ]
@@ -183,6 +188,7 @@ final class WhisperCppFileTask: @unchecked Sendable {
             "-f", wavURL.path,
             "-l", "auto",
             "-t", "8", "-p", "4", "-fa",
+            "-vm", TranscriptionEngine.wcppVADModelURL.path, "--vad",
         ]
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe

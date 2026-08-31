@@ -2,6 +2,7 @@ import AppKit
 import DictateMacCore
 import Combine
 import OSLog
+import UniformTypeIdentifiers
 
 @MainActor
 final class DictatorMenuController: NSObject {
@@ -116,6 +117,10 @@ final class DictatorMenuController: NSObject {
         recordItem.target = self
         recordItem.keyEquivalentModifierMask = .function
 
+        let fileItem = menu.addItem(withTitle: "Transcribe Audio File…", action: #selector(transcribeFileAction), keyEquivalent: "o")
+        fileItem.target = self
+        fileItem.keyEquivalentModifierMask = [.command]
+
         let recentItem = menu.addItem(withTitle: "Recent Dictations", action: #selector(openArchiveAction), keyEquivalent: "")
         recentItem.target = self
 
@@ -154,6 +159,19 @@ final class DictatorMenuController: NSObject {
 
     @objc private func toggleMeeting() {
         controller?.toggleRecording()
+    }
+
+    @objc private func transcribeFileAction() {
+        let panel = NSOpenPanel()
+        panel.title = "Transcribe Audio File"
+        panel.prompt = "Transcribe"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.audio]
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.controller?.transcribeAudioFile(url)
+        }
     }
 
     @objc private func copyTranscript(_ sender: NSMenuItem) {

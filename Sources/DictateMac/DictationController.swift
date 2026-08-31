@@ -155,6 +155,86 @@ final class DictationController: ObservableObject {
         NSWorkspace.shared.open(archive.rootURL)
     }
 
+    /// Transcribe a user-picked audio file: whisper.cpp full-file pass → paste + archive.
+    func transcribeAudioFile(_ url: URL) {
+        guard !isRecording, !operationInProgress else {
+            statusText = "Finish the current take first"
+            return
+        }
+        operationInProgress = true
+        isBusy = true
+        statusText = "Transcribing audio file…"
+        transcriptionHUDTitle = "Transcribing audio file…"
+        startLivePresentation()
+
+        Task {
+            defer {
+                isBusy = false
+                operationInProgress = false
+                stopLivePresentation()
+            }
+            guard let archive else {
+                statusText = "Archive unavailable"
+                return
+            }
+            do {
+                var session = try archive.startSession(sourceApplication: "Audio File")
+                session.metadata.status = .transcribing
+                try archive.writeMetadata(for: session)
+
+                // Normalize any input (wav/mp3/m4a/flac/ogg/aiff) to 16 kHz mono WAV
+                // at the session's audio slot, then transcribe that WAV.
+                try Self.convertToWav16kMono(url, to: session.audioURL)
+
+                let raw: String
+                let modelName: String
+                switch transcriptionEngine {
+                case .qwen3ASR:
+                    let qwen = try await QwenASRService.transcribe(wavURL: session.audioURL)
+                    raw = qwen.text
+                    modelName = qwen.model
+                case .whisperCpp, .whisperKit:
+                    let wcpp = try await WhisperCppService.transcribe(wavURL: session.audioURL)
+                    raw = wcpp.text
+                    modelName = wcpp.model
+                }
+                let transcript = TranscriptCleaner.clean(raw)
+                guard !transcript.isEmpty else { throw DictationError.emptyTranscript }
+                session.metadata.model = modelName
+
+                session = try archive.nameAndWriteTranscript(transcript, for: session)
+                currentSession = session
+                latestTranscript = transcript
+                liveConfirmedText = transcript
+                liveProvisionalText = ""
+                transcriptionHUDTitle = "Copying transcript"
+                statusText = "Delivering final transcript"
+                let deliveryTarget = targetTracker.targetApplication()
+                let delivery = await TranscriptDeliveryService.deliver(
+                    transcript,
+                    to: deliveryTarget,
+                    mode: AutoPastePolicy.deliveryMode(isEnabled: autoPasteEnabled)
+                )
+                session.metadata.status = .completed
+                session.metadata.completedAt = Date()
+                session.metadata.delivery = delivery
+                session.metadata.autoPasteEnabled = autoPasteEnabled
+                try archive.complete(session)
+                currentSession = nil
+                switch delivery {
+                case .accessibilityInserted, .pasteShortcutPosted:
+                    statusText = "Audio file transcribed"
+                case .accessibilityDenied, .targetUnavailable:
+                    statusText = "Copied — enable Accessibility for DICTATOR"
+                case .clipboardOnly:
+                    statusText = "Copied — Auto-Paste is off"
+                }
+            } catch {
+                statusText = "Audio file failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
     /// Recent takes for the menu bar list: headline + time, text attached by the menu.
     func recentTranscriptsForMenu(limit: Int = 5) -> [(displayTitle: String, text: String)] {
         guard let archive else { return [] }
@@ -193,6 +273,24 @@ final class DictationController: ObservableObject {
         systemAudioGranted = SystemAudioCapture.requestPermission()
         if !systemAudioGranted {
             openPrivacySettings("Privacy_ScreenCapture")
+        }
+    }
+
+    private static func convertToWav16kMono(_ source: URL, to destination: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
+        process.arguments = [
+            "-f", "WAVE", "-d", "LEI16@16000", "-c", "1",
+            source.path, destination.path,
+        ]
+        let err = Pipe()
+        process.standardError = err
+        process.standardOutput = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let message = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            throw AudioConversionError.afconvertFailed(exit: process.terminationStatus, message: message)
         }
     }
 
@@ -641,5 +739,16 @@ private enum DictationError: LocalizedError {
 
     var errorDescription: String? {
         "No speech was recognized."
+    }
+}
+
+private enum AudioConversionError: LocalizedError {
+    case afconvertFailed(exit: Int32, message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .afconvertFailed(let exit, let message):
+            "Audio conversion failed (exit \(exit)): \(message)"
+        }
     }
 }

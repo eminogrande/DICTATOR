@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.18 — 2026-08-31
+
+- Audio file upload: menu "Transcribe Audio File…" (⌘O) opens a picker, converts any
+  audio (wav/mp3/m4a/flac/ogg/aiff) to 16 kHz mono WAV via afconvert, transcribes with
+  the selected engine, pastes and archives the result like a normal take.
+
 ## 0.9.17 — 2026-08-20
 
 - whisper.cpp engine (default): Whisper large-v3-turbo via whisper.cpp sidecar with Metal —

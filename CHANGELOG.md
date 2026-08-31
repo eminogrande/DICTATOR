@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.25 — 2026-08-31
+
+- Clean minimal UI: one big Record button + Transcribe file, transcripts list,
+  everything technical collapsed under Advanced. Engine labels simplified.
+
 ## 0.9.24 — 2026-08-31
 
 - Live preview restored: WhisperKit streaming now runs for live transcript regardless

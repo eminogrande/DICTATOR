@@ -15,9 +15,9 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .whisperCpp: "whisper.cpp (fastest)"
-        case .whisperKit: "WhisperKit (built-in)"
-        case .qwen3ASR: "Qwen3-ASR (best German)"
+        case .whisperCpp: "Fast"
+        case .whisperKit: "Built-in"
+        case .qwen3ASR: "Best quality"
         }
     }
 

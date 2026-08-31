@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.26 — 2026-08-31
+
+- Transcript list: folder icon per entry reveals the file in Finder (alongside Copy).
+
 ## 0.9.25 — 2026-08-31
 
 - Clean minimal UI: one big Record button + Transcribe file, transcripts list,

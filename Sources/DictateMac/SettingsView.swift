@@ -58,6 +58,13 @@ struct SettingsView: View {
                                         .font(.system(size: 16))
                                         .lineLimit(1)
                                     Spacer()
+                                    Button {
+                                        controller.revealTranscriptInFolder(entry.id)
+                                    } label: {
+                                        Image(systemName: "folder")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Show in Finder")
                                     Button("Copy") {
                                         NSPasteboard.general.clearContents()
                                         NSPasteboard.general.setString(entry.text, forType: .string)
@@ -134,7 +141,7 @@ struct SettingsView: View {
 
     private var recentTranscripts: [(id: String, headline: String, text: String)] {
         controller.recentTranscriptsForMenu(limit: 6).map { entry in
-            (id: entry.displayTitle, headline: entry.displayTitle, text: entry.text)
+            (id: entry.id, headline: entry.displayTitle, text: entry.text)
         }
     }
 }

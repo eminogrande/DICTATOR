@@ -261,14 +261,21 @@ final class DictationController: ObservableObject {
     }
 
     /// Recent takes for the menu bar list: headline + time, text attached by the menu.
-    func recentTranscriptsForMenu(limit: Int = 5) -> [(displayTitle: String, text: String)] {
+    func recentTranscriptsForMenu(limit: Int = 5) -> [(id: String, displayTitle: String, text: String)] {
         guard let archive else { return [] }
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .short
         return archive.recentTranscripts(limit: limit).map { entry in
-            (displayTitle: "\(entry.headline) — \(formatter.string(from: entry.date))", text: entry.text)
+            (id: entry.id, displayTitle: "\(entry.headline) — \(formatter.string(from: entry.date))", text: entry.text)
         }
+    }
+
+    /// Reveal a transcript (and its audio + metadata) in Finder.
+    func revealTranscriptInFolder(_ id: String) {
+        guard let archive else { return }
+        let file = archive.rootURL.appendingPathComponent(id + ".txt")
+        NSWorkspace.shared.activateFileViewerSelecting([file])
     }
 
     func requestAccessibilityPermission() {

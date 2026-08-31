@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.21 — 2026-08-31
+
+- File transcription: live progress bar + partial transcript + Stop button. whisper.cpp
+  segments stream in and update the UI (was: blank until the whole file finished).
+- File picker accepts movies (mp4/mov) in addition to audio; afconvert normalizes them.
+- Meeting audio: 3 capture attempts with backoff; when another app holds the
+  ScreenCaptureKit session, DICTATOR keeps recording mic-only with a clear status
+  instead of blocking or hanging.
+
 ## 0.9.20 — 2026-08-31
 
 - Recording decoupled from WhisperKit: mic now records directly to WAV via AVAudioRecorder

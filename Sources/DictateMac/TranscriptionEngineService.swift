@@ -1,3 +1,4 @@
+import AVFoundation
 import DictateMacCore
 import Foundation
 
@@ -148,7 +149,6 @@ enum WhisperCppService {
         guard exitCode == 0 else {
             throw WhisperCppError.processFailed(exit: exitCode)
         }
-        // -np -nt: stdout is the plain transcript, one line per segment.
         let text = String(decoding: stdout, as: UTF8.self)
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -159,14 +159,122 @@ enum WhisperCppService {
     }
 }
 
+/// Long-running whisper.cpp transcription with live progress + cancellation.
+final class WhisperCppFileTask: @unchecked Sendable {
+    struct Snapshot: Sendable {
+        let fraction: Double      // 0...1
+        let text: String          // full transcript so far
+    }
+
+    private let process = Process()
+    private let stdoutPipe = Pipe()
+    private let stderrPipe = Pipe()
+    private let duration: Double
+    private let lock = NSLock()
+    private var lines: [String] = []
+    private var cancelled = false
+
+    init(wavURL: URL) throws {
+        let file = try AVAudioFile(forReading: wavURL)
+        duration = Double(file.length) / file.fileFormat.sampleRate
+        process.executableURL = TranscriptionEngine.wcppURL
+        process.arguments = [
+            "-m", TranscriptionEngine.wcppModelURL.path,
+            "-f", wavURL.path,
+            "-l", "auto",
+            "-t", "8", "-p", "4", "-fa",
+        ]
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+    }
+
+    func cancel() {
+        lock.lock(); cancelled = true; lock.unlock()
+        process.terminate()
+    }
+
+    private var isCancelled: Bool {
+        lock.lock(); defer { lock.unlock() }; return cancelled
+    }
+
+    /// Runs whisper.cpp, emitting progress snapshots as segment lines stream in.
+    /// Returns the joined transcript, or throws on error/cancellation.
+    func run(onSnapshot: @escaping @Sendable (Snapshot) -> Void) async throws -> String {
+        // Drain stderr so the process never blocks on a full pipe.
+        let stderrDrain = Task.detached(priority: .utility) {
+            _ = self.stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+        try process.run()
+
+        var text = ""
+        for try await line in stdoutPipe.fileHandleForReading.bytes.lines {
+            guard !isCancelled else {
+                process.terminate()
+                throw WhisperCppError.cancelled
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("[") else { continue }
+            // "[00:00:01.980 --> 00:00:03.140]   text"
+            guard let close = trimmed.firstIndex(of: "]") else { continue }
+            let tsRange = trimmed.index(after: trimmed.startIndex)..<close
+            let ts = String(trimmed[tsRange])
+            let parts = ts.components(separatedBy: "-->")
+            let segmentText: String
+            if let bodyStart = trimmed.index(close, offsetBy: 1, limitedBy: trimmed.endIndex) {
+                segmentText = String(trimmed[bodyStart...]).trimmingCharacters(in: .whitespaces)
+            } else {
+                segmentText = ""
+            }
+            if parts.count == 2, let end = Self.timestamp(parts[1]) {
+                let fraction = duration > 0 ? min(1.0, end / duration) : 0
+                lock.lock()
+                if !segmentText.isEmpty { lines.append(segmentText) }
+                text = lines.joined(separator: " ")
+                lock.unlock()
+                onSnapshot(Snapshot(fraction: fraction, text: text))
+            } else if !segmentText.isEmpty {
+                lock.lock(); lines.append(segmentText); text = lines.joined(separator: " "); lock.unlock()
+                onSnapshot(Snapshot(fraction: 0, text: text))
+            }
+        }
+
+        process.waitUntilExit()
+        _ = await stderrDrain.value
+        if isCancelled {
+            throw WhisperCppError.cancelled
+        }
+        guard process.terminationStatus == 0 else {
+            throw WhisperCppError.processFailed(exit: process.terminationStatus)
+        }
+        lock.lock(); let final = lines.joined(separator: " "); lock.unlock()
+        guard !final.isEmpty else { throw WhisperCppError.noOutput }
+        return final
+    }
+
+    private static func timestamp(_ raw: String) -> Double? {
+        let clean = raw.trimmingCharacters(in: .whitespaces)
+        let comps = clean.split(separator: ":").map(String.init)
+        guard comps.count >= 2 else { return nil }
+        if comps.count == 3, let h = Double(comps[0]), let m = Double(comps[1]), let s = Double(comps[2]) {
+            return h * 3600 + m * 60 + s
+        }
+        if comps.count == 2, let m = Double(comps[0]), let s = Double(comps[1]) {
+            return m * 60 + s
+        }
+        return nil
+    }
+}
+
 private enum WhisperCppError: LocalizedError {
     case processFailed(exit: Int32)
     case noOutput
+    case cancelled
 
     var errorDescription: String? {
         switch self {
         case .processFailed(let exit): "whisper.cpp exited with code \(exit)."
         case .noOutput: "whisper.cpp produced no transcript."
+        case .cancelled: "Transcription cancelled."
         }
     }
 }

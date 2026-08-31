@@ -24,6 +24,9 @@ final class DictationController: ObservableObject {
     @Published private(set) var enhancementStatusText = "Optional — local transcription stays available"
     @Published private(set) var isTranscribing = false
     @Published private(set) var isRecording = false
+    @Published private(set) var isTranscribingFile = false
+    @Published private(set) var fileProgress: Double = 0
+    @Published private(set) var filePartialText = ""
     @Published private(set) var isBusy = true
     @Published private(set) var accessibilityGranted = TranscriptDeliveryService.isAccessibilityGranted
     @Published private(set) var microphoneGranted = AudioRecorder.isAuthorized
@@ -77,6 +80,7 @@ final class DictationController: ObservableObject {
     private var systemAudioCapture: SystemAudioCapture?
     private var microphoneStartedAt: Date?
     private var streamingActive = false
+    private var activeFileTask: WhisperCppFileTask?
 
 
     var isLatchedRecording: Bool { isRecording && !recordingStartedByFn }
@@ -166,7 +170,10 @@ final class DictationController: ObservableObject {
         }
         operationInProgress = true
         isBusy = true
-        statusText = "Transcribing audio file…"
+        isTranscribingFile = true
+        fileProgress = 0
+        filePartialText = ""
+        statusText = "Converting audio…"
         transcriptionHUDTitle = "Transcribing audio file…"
         startLivePresentation()
 
@@ -174,6 +181,8 @@ final class DictationController: ObservableObject {
             defer {
                 isBusy = false
                 operationInProgress = false
+                isTranscribingFile = false
+                activeFileTask = nil
                 stopLivePresentation()
             }
             guard let archive else {
@@ -185,8 +194,7 @@ final class DictationController: ObservableObject {
                 session.metadata.status = .transcribing
                 try archive.writeMetadata(for: session)
 
-                // Normalize any input (wav/mp3/m4a/flac/ogg/aiff) to 16 kHz mono WAV
-                // at the session's audio slot, then transcribe that WAV.
+                // Normalize any input (wav/mp3/m4a/mp4/mov/flac/ogg/aiff) to 16 kHz mono WAV.
                 try Self.convertToWav16kMono(url, to: session.audioURL)
 
                 let raw: String
@@ -197,9 +205,18 @@ final class DictationController: ObservableObject {
                     raw = qwen.text
                     modelName = qwen.model
                 case .whisperCpp, .whisperKit:
-                    let wcpp = try await WhisperCppService.transcribe(wavURL: session.audioURL)
-                    raw = wcpp.text
-                    modelName = wcpp.model
+                    let task = try WhisperCppFileTask(wavURL: session.audioURL)
+                    activeFileTask = task
+                    statusText = "Transcribing…"
+                    raw = try await task.run { [weak self] snapshot in
+                        Task { @MainActor in
+                            self?.fileProgress = snapshot.fraction
+                            self?.filePartialText = snapshot.text
+                            self?.liveConfirmedText = snapshot.text
+                            self?.statusText = Self.progressLabel(snapshot.fraction)
+                        }
+                    }
+                    modelName = "whisper.cpp large-v3-turbo"
                 }
                 let transcript = TranscriptCleaner.clean(raw)
                 guard !transcript.isEmpty else { throw DictationError.emptyTranscript }
@@ -236,6 +253,17 @@ final class DictationController: ObservableObject {
                 statusText = "Audio file failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    /// Cancel the in-flight file transcription (kills whisper.cpp).
+    func cancelFileTranscription() {
+        activeFileTask?.cancel()
+        statusText = "Cancelling…"
+    }
+
+    private static func progressLabel(_ fraction: Double) -> String {
+        let pct = Int((fraction * 100).rounded())
+        return "Transcribing… \(pct)%"
     }
 
     /// Recent takes for the menu bar list: headline + time, text attached by the menu.
@@ -463,22 +491,27 @@ final class DictationController: ObservableObject {
                 }
                 if systemAudioGranted {
                     var capture = SystemAudioCapture()
-                    do {
-                        try await capture.start()
-                        systemAudioCapture = capture
-                        captureStartLog.append("started+\(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
-                    } catch {
-                        try? await Task.sleep(nanoseconds: 250_000_000)
-                        capture = SystemAudioCapture()
+                    var started = false
+                    for attempt in 0..<3 {
+                        if attempt > 0 {
+                            try? await Task.sleep(nanoseconds: 300_000_000)
+                            capture = SystemAudioCapture()
+                        }
                         do {
                             try await capture.start()
                             systemAudioCapture = capture
-                            captureStartLog.append("retry-ok+\(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
+                            captureStartLog.append("attempt\(attempt + 1)-ok+\(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
+                            started = true
+                            break
                         } catch {
-                            systemAudioCapture = nil
-                            transcriptionHUDTitle = "Mac audio unavailable — microphone only"
-                            captureStartLog.append("failed(\(error.localizedDescription))")
+                            captureStartLog.append("attempt\(attempt + 1)-failed(\(error.localizedDescription))")
                         }
+                    }
+                    if !started {
+                        // Another app (browser screen-share, Zoom, OBS) likely holds the
+                        // ScreenCaptureKit session. Keep recording mic-only — never block.
+                        systemAudioCapture = nil
+                        transcriptionHUDTitle = "Mac audio busy in another app — microphone only"
                     }
                 } else {
                     transcriptionHUDTitle = "Mac audio permission needed — microphone only"

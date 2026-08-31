@@ -38,6 +38,23 @@ struct SettingsView: View {
                     .font(.system(size: 15))
                     .foregroundStyle(.secondary)
 
+                if controller.isTranscribingFile {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ProgressView(value: controller.fileProgress)
+                            .progressViewStyle(.linear)
+                        Text(controller.filePartialText.isEmpty ? "Transcribing…" : controller.filePartialText)
+                            .font(.system(size: 15))
+                            .lineLimit(4)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                        Button("Stop", role: .destructive) {
+                            controller.cancelFileTranscription()
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                }
+
                 Divider()
 
                 Toggle("Auto-Paste", isOn: $controller.autoPasteEnabled)
@@ -177,7 +194,7 @@ struct SettingsView: View {
         }
         .fileImporter(
             isPresented: $showFilePicker,
-            allowedContentTypes: [.audio],
+            allowedContentTypes: [.audio, .movie, .audiovisualContent],
             allowsMultipleSelection: false
         ) { result in
             if case .success(let urls) = result, let url = urls.first {

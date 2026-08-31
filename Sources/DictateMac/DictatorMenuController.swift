@@ -167,7 +167,7 @@ final class DictatorMenuController: NSObject {
         panel.prompt = "Transcribe"
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.audio]
+        panel.allowedContentTypes = [.audio, .movie, .audiovisualContent]
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
             self?.controller?.transcribeAudioFile(url)

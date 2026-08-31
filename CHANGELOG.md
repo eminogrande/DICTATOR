@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.24 — 2026-08-31
+
+- Live preview restored: WhisperKit streaming now runs for live transcript regardless
+  of the selected full-file engine, and loads async so it never blocks recording.
+- Recent transcripts list with copy buttons added to the main window.
+
 ## 0.9.23 — 2026-08-31
 
 - File transcription no longer spawns the borderless HUD overlay (which couldn't be

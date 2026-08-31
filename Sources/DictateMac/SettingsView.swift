@@ -144,6 +144,28 @@ struct SettingsView: View {
                         .textSelection(.enabled)
                 }
 
+                if !recentTranscripts.isEmpty {
+                    Divider()
+                    Text("Recent transcripts")
+                        .font(.system(size: 17))
+                        .foregroundStyle(.secondary)
+                    ForEach(recentTranscripts, id: \.id) { entry in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(entry.headline)
+                                .font(.system(size: 15))
+                                .lineLimit(2)
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 8)
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(entry.text, forType: .string)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                }
+
                 if !controller.usefulContext.isEmpty {
                     Divider()
                     Text("Things worth adding")
@@ -220,6 +242,12 @@ struct SettingsView: View {
             controller.transcriptionEngine.isAvailable
                 ? "Best German accuracy (Qwen3-ASR 0.6B via local MLX). Slowest of the three."
                 : "Not installed — run the Tools installer, falling back to WhisperKit."
+        }
+    }
+
+    private var recentTranscripts: [(id: String, headline: String, text: String)] {
+        controller.recentTranscriptsForMenu(limit: 8).map { entry in
+            (id: entry.displayTitle, headline: entry.displayTitle, text: entry.text)
         }
     }
 }

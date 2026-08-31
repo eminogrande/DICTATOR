@@ -81,6 +81,7 @@ final class DictationController: ObservableObject {
     private var microphoneStartedAt: Date?
     private var streamingActive = false
     private var activeFileTask: WhisperCppFileTask?
+    private var whisperKitReady = false
 
 
     var isLatchedRecording: Bool { isRecording && !recordingStartedByFn }
@@ -346,24 +347,19 @@ final class DictationController: ObservableObject {
 
 
     private func prepareModel() async {
-        // Full-file pass runs via the selected engine. whisper.cpp and Qwen3 are
-        // sidecar processes (no in-process model). WhisperKit is only required for
-        // live streaming preview, which is a nice-to-have — never block recording on it.
-        if transcriptionEngine != .whisperKit {
-            modelReady = true
-            statusText = "Ready — hold Fn to talk"
-            isBusy = false
-            return
-        }
-        do {
-            try await transcriber.loadModel()
-            modelReady = true
-            statusText = "Ready — hold Fn to talk"
-        } catch {
-            modelReady = true
-            statusText = "WhisperKit preview unavailable — using whisper.cpp for the pass"
-        }
+        // Full-file pass runs via the selected engine (whisper.cpp/Qwen3 are sidecars).
+        // WhisperKit is only for LIVE PREVIEW: load it async, never block recording.
+        modelReady = true
+        statusText = "Ready — hold Fn to talk"
         isBusy = false
+        Task {
+            do {
+                try await transcriber.loadModel()
+                whisperKitReady = true
+            } catch {
+                whisperKitReady = false
+            }
+        }
     }
 
     private func handleFnAction(_ action: PushToTalkAction) {
@@ -445,7 +441,7 @@ final class DictationController: ObservableObject {
             startLivePresentation()
             microphoneStartedAt = Date()
             do {
-                if transcriptionEngine == .whisperKit {
+                if whisperKitReady {
                     try await transcriber.startStreaming(
                         onUpdate: { [weak self] snapshot in
                             guard let self else { return }
@@ -458,7 +454,7 @@ final class DictationController: ObservableObject {
                     )
                     streamingActive = true
                 } else {
-                    // whisper.cpp / Qwen3: record mic directly to WAV, no WhisperKit needed.
+                    // whisper.cpp / Qwen3 with no WhisperKit: record mic directly to WAV.
                     try micRecorder.start(at: session.audioURL)
                     streamingActive = false
                 }

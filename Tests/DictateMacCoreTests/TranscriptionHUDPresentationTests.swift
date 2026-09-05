@@ -12,7 +12,7 @@ final class TranscriptionHUDPresentationTests: XCTestCase {
         XCTAssertEqual(
             presentation,
             TranscriptionHUDPresentation(
-                title: "",
+                title: "Loading…",
                 confirmed: "",
                 provisional: ""
             )

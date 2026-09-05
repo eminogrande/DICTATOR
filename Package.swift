@@ -24,8 +24,10 @@ let package = Package(
             dependencies: [
                 "DictateMacCore",
                 .product(name: "WhisperKit", package: "argmax-oss-swift")
-            ]
+            ],
+            resources: [.copy("Resources/readiness.wav")]
         ),
+        .testTarget(name: "DictateMacTests", dependencies: ["DictateMac"]),
         .testTarget(
             name: "DictateMacCoreTests",
             dependencies: ["DictateMacCore"]

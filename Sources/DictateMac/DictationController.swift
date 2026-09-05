@@ -7,7 +7,9 @@ import OSLog
 
 @MainActor
 final class DictationController: ObservableObject {
-    @Published private(set) var statusText = "Loading/downloading large-v3-turbo…"
+    @Published private(set) var statusText = "Loading Fast…"
+    @Published private(set) var readiness = TranscriptionReadiness(engineID: TranscriptionEngine.whisperCpp.rawValue)
+    @Published private(set) var blockedHUDVisible = false
     @Published private(set) var latestTranscript = ""
     /// True while the current take is an Fn+A compress take (result = minimal numbered list).
     @Published private(set) var compressMode = false
@@ -33,27 +35,28 @@ final class DictationController: ObservableObject {
     @Published private(set) var systemAudioGranted = SystemAudioCapture.isAuthorized
     @Published var autoPasteEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(autoPasteEnabled, forKey: Self.autoPasteDefaultsKey)
+            settings.set(autoPasteEnabled, forKey: Self.autoPasteDefaultsKey)
         }
     }
     @Published var aiEnhancementEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(aiEnhancementEnabled, forKey: Self.aiEnhancementDefaultsKey)
+            settings.set(aiEnhancementEnabled, forKey: Self.aiEnhancementDefaultsKey)
         }
     }
     @Published var meetingCaptureEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(meetingCaptureEnabled, forKey: Self.meetingCaptureDefaultsKey)
+            settings.set(meetingCaptureEnabled, forKey: Self.meetingCaptureDefaultsKey)
         }
     }
     @Published var openRouterModel: String {
         didSet {
-            UserDefaults.standard.set(openRouterModel, forKey: Self.openRouterModelDefaultsKey)
+            settings.set(openRouterModel, forKey: Self.openRouterModelDefaultsKey)
         }
     }
     @Published var transcriptionEngine: TranscriptionEngine = .whisperCpp {
         didSet {
-            UserDefaults.standard.set(transcriptionEngine.rawValue, forKey: Self.engineDefaultsKey)
+            settings.set(transcriptionEngine.rawValue, forKey: Self.engineDefaultsKey)
+            if transcriptionEngine != oldValue { refreshReadiness() }
         }
     }
 
@@ -72,7 +75,18 @@ final class DictationController: ObservableObject {
     private var currentSession: DictationSession?
     private var targetApplication: NSRunningApplication?
     private var currentSessionAutoPasteEnabled = true
-    private var modelReady = false
+    private let settings: UserDefaults
+    private let readinessValidator: ((TranscriptionEngine) async throws -> Void)?
+    private var readinessTask: Task<Void, Never>?
+    private var previewTask: Task<Void, Error>?
+    private var sessionEngine: TranscriptionEngine = .whisperCpp
+    private var modelReady: Bool {
+        readiness.permitsRecording(engineID: transcriptionEngine.rawValue, busy: false, recording: false)
+    }
+    var hasActiveWork: Bool { isRecording || operationInProgress }
+    var canTranscribeFile: Bool { modelReady && !hasActiveWork }
+    var readinessStatus: String { readiness.status(engineName: transcriptionEngine.displayName) }
+
     private var operationInProgress = false
     private var fnKeyMonitor: FnKeyMonitor?
     private var recordingStartedByFn = false
@@ -108,8 +122,10 @@ final class DictationController: ObservableObject {
         systemAudioGranted ? "Mac Audio Granted" : "Enable Mac Audio…"
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(startServices: Bool = true, defaults: UserDefaults = .standard,
+         readinessValidator: ((TranscriptionEngine) async throws -> Void)? = nil) {
+        self.settings = defaults
+        self.readinessValidator = readinessValidator
         autoPasteEnabled = defaults.object(forKey: Self.autoPasteDefaultsKey) == nil
             ? true
             : defaults.bool(forKey: Self.autoPasteDefaultsKey)
@@ -120,9 +136,12 @@ final class DictationController: ObservableObject {
             ? "~deepseek/deepseek-v4-flash-latest"
             : storedModel ?? "~deepseek/deepseek-v4-flash-latest"
         if let storedEngine = defaults.string(forKey: Self.engineDefaultsKey),
-           let engine = TranscriptionEngine(rawValue: storedEngine), engine.isAvailable {
+           let engine = TranscriptionEngine(rawValue: storedEngine) {
             transcriptionEngine = engine
         }
+        readiness = TranscriptionReadiness(engineID: transcriptionEngine.rawValue)
+        statusText = readinessStatus
+        guard startServices else { isBusy = false; return }
         hasOpenRouterAPIKey = ((try? keyStore.read()) ?? nil) != nil
 
         do {
@@ -133,9 +152,9 @@ final class DictationController: ObservableObject {
             return
         }
 
-        Task {
-            await prepareModel()
-        }
+        isBusy = false
+        refreshReadiness()
+        preparePreview()
 
         fnKeyMonitor = FnKeyMonitor { [weak self] action in
             self?.handleFnAction(action)
@@ -169,6 +188,8 @@ final class DictationController: ObservableObject {
             statusText = "Finish the current take first"
             return
         }
+        guard ensureReady() else { return }
+        let engine = transcriptionEngine
         operationInProgress = true
         isBusy = true
         isTranscribingFile = true
@@ -193,16 +214,22 @@ final class DictationController: ObservableObject {
                 try archive.writeMetadata(for: session)
 
                 // Normalize any input (wav/mp3/m4a/mp4/mov/flac/ogg/aiff) to 16 kHz mono WAV.
-                try Self.convertToWav16kMono(url, to: session.audioURL)
+                let destination = session.audioURL
+                try await Task.detached(priority: .utility) {
+                    try Self.convertToWav16kMono(url, to: destination)
+                }.value
 
                 let raw: String
                 let modelName: String
-                switch transcriptionEngine {
+                switch engine {
                 case .qwen3ASR:
                     let qwen = try await QwenASRService.transcribe(wavURL: session.audioURL)
                     raw = qwen.text
                     modelName = qwen.model
-                case .whisperCpp, .whisperKit:
+                case .whisperKit:
+                    raw = try await transcriber.transcribe(wavURL: session.audioURL)
+                    modelName = "WhisperKit large-v3-turbo"
+                case .whisperCpp:
                     let task = try WhisperCppFileTask(wavURL: session.audioURL)
                     activeFileTask = task
                     statusText = "Transcribing…"
@@ -308,7 +335,7 @@ final class DictationController: ObservableObject {
         }
     }
 
-    private static func convertToWav16kMono(_ source: URL, to destination: URL) throws {
+    nonisolated private static func convertToWav16kMono(_ source: URL, to destination: URL) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
         process.arguments = [
@@ -353,30 +380,90 @@ final class DictationController: ObservableObject {
     }
 
 
-    private func prepareModel() async {
-        // Full-file pass runs via the selected engine (whisper.cpp/Qwen3 are sidecars).
-        // WhisperKit is only for LIVE PREVIEW: load it async, never block recording.
-        modelReady = true
-        statusText = "Ready — hold Fn to talk"
-        isBusy = false
-        Task {
+    /// Refresh only readiness; never stop a recording or file job. Each job pins
+    /// its engine. Slow results from a previous selection are discarded.
+    func refreshReadiness() {
+        let engine = transcriptionEngine
+        let token = readiness.begin(engineID: engine.rawValue)
+        if !hasActiveWork { statusText = readinessStatus }
+        // A stuck optional/Built-in load must not delay a newly selected sidecar.
+        // Generation tokens reject superseded probe results.
+        readinessTask = Task { [weak self] in
+            guard let self, self.readiness.generation == token else { return }
+            let deadline = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 180_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                self.readiness.complete(token, error: "Loading timed out. Retry or choose another quality.")
+                if !self.hasActiveWork { self.statusText = self.readinessStatus }
+            }
+            defer { deadline.cancel() }
             do {
-                try await transcriber.loadModel()
-                whisperKitReady = true
+                if let validator = self.readinessValidator {
+                    try await validator(engine)
+                } else if engine == .whisperKit {
+                    self.preparePreview()
+                    try await self.previewTask?.value
+                    guard self.whisperKitReady else { throw EngineValidationError("Built-in is unavailable.") }
+                } else {
+                    try await EngineValidation.validateSidecar(engine)
+                }
+                self.readiness.complete(token)
             } catch {
-                whisperKitReady = false
+                self.readiness.complete(token, error: error.localizedDescription)
+            }
+            if self.readiness.generation == token && !self.hasActiveWork {
+                self.statusText = self.readinessStatus
             }
         }
     }
 
-    private func handleFnAction(_ action: PushToTalkAction) {
+    private func preparePreview() {
+        guard previewTask == nil else { return }
+        previewTask = Task {
+            do {
+                try await transcriber.loadModel()
+                let text = try await transcriber.transcribe(wavURL: EngineValidation.fixtureURL)
+                guard !TranscriptCleaner.clean(text).isEmpty else {
+                    throw EngineValidationError("Built-in produced no transcript.")
+                }
+                whisperKitReady = true
+            } catch {
+                whisperKitReady = false
+                throw error
+            }
+        }
+    }
+
+    func retryReadiness() {
+        guard !hasActiveWork, !readiness.isLoading else { return }
+        if !whisperKitReady { previewTask = nil }
+        refreshReadiness()
+    }
+
+    @discardableResult
+    private func ensureReady() -> Bool {
+        guard modelReady else { statusText = readinessStatus; return false }
+        do { try transcriptionEngine.checkInstallation() }
+        catch {
+            let token = readiness.begin(engineID: transcriptionEngine.rawValue)
+            readiness.complete(token, error: error.localizedDescription)
+            statusText = readinessStatus
+            return false
+        }
+        return true
+    }
+
+    func handleFnAction(_ action: PushToTalkAction) {
         switch action {
         case .none:
             break
         case .start, .compressStart:
-            guard modelReady, !isRecording, !operationInProgress else {
+            guard !isRecording, !operationInProgress else { return }
+            guard ensureReady() else {
+                blockedHUDVisible = true
                 return
             }
+            blockedHUDVisible = false
             recordingStartedByFn = true
             fnReleasedDuringStartup = false
             compressMode = action == .compressStart
@@ -384,6 +471,7 @@ final class DictationController: ObservableObject {
                 await startRecording(triggeredByFn: true, forceMeetingAudio: false)
             }
         case .stop, .compressStop:
+            blockedHUDVisible = false
             guard recordingStartedByFn else {
                 return
             }
@@ -395,10 +483,7 @@ final class DictationController: ObservableObject {
         case .toggle:
             switch MeetingToggle.result(isRecording: isRecording || operationInProgress, startedByHold: recordingStartedByFn) {
             case .start:
-                guard modelReady else {
-                    statusText = "Model not ready yet — try again in a moment"
-                    return
-                }
+                guard ensureReady() else { return }
                 if operationInProgress {
                     statusText = "Still starting the previous recording…"
                     return
@@ -417,9 +502,9 @@ final class DictationController: ObservableObject {
     }
 
     private func startRecording(triggeredByFn: Bool, forceMeetingAudio: Bool) async {
-        guard modelReady, !operationInProgress, let archive else {
-            return
-        }
+        guard !isRecording, !operationInProgress, ensureReady(), let archive else { return }
+        let token = readiness.generation
+        sessionEngine = transcriptionEngine
         if !triggeredByFn {
             recordingStartedByFn = false
             fnReleasedDuringStartup = false
@@ -437,6 +522,13 @@ final class DictationController: ObservableObject {
             return
         }
         microphoneGranted = true
+        guard readiness.generation == token, modelReady else {
+            statusText = readinessStatus
+            isBusy = false
+            operationInProgress = false
+            recordingStartedByFn = false
+            return
+        }
 
         let target = targetTracker.targetApplication()
         do {
@@ -449,6 +541,7 @@ final class DictationController: ObservableObject {
             microphoneStartedAt = Date()
             do {
                 if whisperKitReady {
+                    do {
                     try await transcriber.startStreaming(
                         onUpdate: { [weak self] snapshot in
                             guard let self else { return }
@@ -460,6 +553,13 @@ final class DictationController: ObservableObject {
                         }
                     )
                     streamingActive = true
+                    } catch {
+                        // Live preview is optional, even when its decoder was validated.
+                        // A microphone/stream-start failure gets an independent WAV attempt.
+                        try micRecorder.start(at: session.audioURL)
+                        streamingActive = false
+                        whisperKitReady = false
+                    }
                 } else {
                     // whisper.cpp / Qwen3 with no WhisperKit: record mic directly to WAV.
                     try micRecorder.start(at: session.audioURL)
@@ -522,6 +622,11 @@ final class DictationController: ObservableObject {
             try archive.writeMetadata(for: session)
             currentSession = session
             isRecording = true
+            if transcriptionHUDTitle == "Starting recording…" {
+                transcriptionHUDTitle = streamingActive
+                    ? "Recording — listening…"
+                    : "Recording — live preview unavailable"
+            }
             isLatchedRecordingPublished = !triggeredByFn
             isBusy = false
             operationInProgress = false
@@ -598,21 +703,19 @@ final class DictationController: ObservableObject {
             session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
             transcriptionHUDTitle = "Transcribing locally, please wait…"
             statusText = "Transcribing locally, please wait…"
-            let microphone: [Float]
             if streamingActive {
-                microphone = try await transcriber.stopStreamingAndSave(
+                _ = try await transcriber.stopStreamingAndSave(
                     to: session.audioURL,
                     systemAudio: systemAudio
                 )
             } else {
                 micRecorder.stop()
-                microphone = []
             }
             streamingActive = false
             // Full-file pass: pick the engine the user selected. Qwen3-ASR reads the
             // saved WAV directly; WhisperKit keeps its in-process samples path.
             let rawTranscript: String
-            switch transcriptionEngine {
+            switch sessionEngine {
             case .qwen3ASR:
                 let qwen = try await QwenASRService.transcribe(wavURL: session.audioURL)
                 session.metadata.model = qwen.model
@@ -622,7 +725,7 @@ final class DictationController: ObservableObject {
                 session.metadata.model = wcpp.model
                 rawTranscript = wcpp.text
             case .whisperKit:
-                rawTranscript = try await transcriber.transcribe(samples: microphone)
+                rawTranscript = try await transcriber.transcribe(wavURL: session.audioURL)
             }
             let transcript = TranscriptCleaner.clean(rawTranscript)
             guard !transcript.isEmpty else {
@@ -710,6 +813,10 @@ final class DictationController: ObservableObject {
             try? archive.writeMetadata(for: session)
             stopLivePresentation()
             statusText = "Transcription failed: \(error.localizedDescription)"
+            if sessionEngine == transcriptionEngine, !(error is DictationError) {
+                let token = readiness.begin(engineID: transcriptionEngine.rawValue)
+                readiness.complete(token, error: error.localizedDescription)
+            }
         }
 
         stopLivePresentation()
@@ -766,7 +873,7 @@ final class DictationController: ObservableObject {
     private func startLivePresentation() {
         isTranscribing = true
         usefulContext = []
-        transcriptionHUDTitle = ""
+        transcriptionHUDTitle = "Starting recording…"
         liveConfirmedText = ""
         liveProvisionalText = ""
         liveAudioProgress = LiveAudioProgress(

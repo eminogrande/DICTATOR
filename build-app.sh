@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP="$ROOT/dist/DICTATOR.app"
+APP="${DICTATOR_BUILD_APP:-$ROOT/dist/DICTATOR.app}"
 CONTENTS="$APP/Contents"
 BRAIN_ROOT="${NUANCED_BRAIN_ROOT:-$ROOT/../nuanced-mcp-typescript}"
 BRAIN="$CONTENTS/Resources/Brain"
@@ -22,6 +22,7 @@ rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$BRAIN"
 cp "$ROOT/.build/release/DictateMac" "$CONTENTS/MacOS/DictateMac"
 cp "$ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
+ditto "$ROOT/.build/release/DictateMac_DictateMac.bundle" "$CONTENTS/Resources/DictateMac_DictateMac.bundle"
 cp "$ROOT/Resources/DICTATOR.icns" "$CONTENTS/Resources/DICTATOR.icns"
 cp "$ROOT/Resources/DICTATOR-menu@2x.png" "$CONTENTS/Resources/DICTATOR-menu@2x.png"
 cp "$(command -v node)" "$BRAIN/node"

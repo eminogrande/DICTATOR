@@ -51,116 +51,128 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
                 .appendingPathComponent("Library/Application Support/DictateMac/Tools", isDirectory: true)
     }
 
-    var isAvailable: Bool {
+    /// Presence is only a cheap invalidation check, NEVER a readiness proof.
+    func checkInstallation(toolsURL: URL = Self.toolsURL) throws {
+        let executable: URL
+        let models: [URL]
         switch self {
-        case .whisperKit: true
+        case .whisperKit: return // A validated in-memory model needs no sidecar.
         case .whisperCpp:
-            FileManager.default.isExecutableFile(atPath: Self.wcppURL.path)
-                && FileManager.default.isReadableFile(atPath: Self.wcppModelURL.path)
-        case .qwen3ASR: FileManager.default.isExecutableFile(atPath: Self.qwenURL.path)
+            executable = toolsURL.appendingPathComponent("wcpp/bin/whisper-cli")
+            models = ["ggml-large-v3-turbo-q5_0.bin", "ggml-silero-v6.2.0.bin"].map {
+                toolsURL.appendingPathComponent("wcpp/models/" + $0)
+            }
+        case .qwen3ASR:
+            executable = toolsURL.appendingPathComponent("asr/bin/mlx-qwen3-asr")
+            models = [] // Offline inference validates the actual cached weights/tokenizer.
         }
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+            throw EngineValidationError("Local engine is missing: \(executable.path)")
+        }
+        for model in models where !FileManager.default.isReadableFile(atPath: model.path) {
+            throw EngineValidationError("Model is missing: \(model.path)")
+        }
+    }
+
+    static var localEnvironment: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        // Installed dylibs sit beside whisper-cli; some builds retain /tmp rpaths.
+        env["DYLD_LIBRARY_PATH"] = wcppURL.deletingLastPathComponent().path
+        env["HF_HUB_OFFLINE"] = "1"
+        env["TRANSFORMERS_OFFLINE"] = "1"
+        return env
     }
 }
 
-/// Transcribes a finished WAV via the mlx-qwen3-asr CLI sidecar.
+struct EngineValidationError: LocalizedError {
+    let message: String
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
+}
+
+enum EngineValidation {
+    static var fixtureURL: URL {
+        // SwiftPM's generated accessor searches the executable bundle root, not
+        // Contents/Resources in a packaged .app. Never depend on a developer's .build.
+        if let resources = Bundle.main.resourceURL,
+           let bundled = Bundle(url: resources.appendingPathComponent("DictateMac_DictateMac.bundle")),
+           let fixture = bundled.url(forResource: "readiness", withExtension: "wav") {
+            return fixture
+        }
+        return Bundle.module.url(forResource: "readiness", withExtension: "wav")!
+    }
+
+    /// Real speech exercises decoder inference AND Silero VAD (silence may skip
+    /// decoding entirely). No user audio, archive writes or network downloads.
+    static func validateSidecar(_ engine: TranscriptionEngine) async throws {
+        try engine.checkInstallation()
+        switch engine {
+        case .whisperCpp: _ = try await WhisperCppService.transcribe(wavURL: fixtureURL, timeout: 120)
+        case .qwen3ASR: _ = try await QwenASRService.transcribe(wavURL: fixtureURL, timeout: 180)
+        case .whisperKit: throw EngineValidationError("Built-in must validate its loaded model.")
+        }
+    }
+
+    static func checkedText(_ result: CapturedSubprocessResult, output: URL) throws -> String {
+        guard result.terminationStatus == 0 else {
+            throw EngineValidationError("Local engine exited with code \(result.terminationStatus).\n" + String(decoding: result.stderr, as: UTF8.self))
+        }
+        let text = TranscriptCleaner.clean(try String(contentsOf: output, encoding: .utf8))
+        guard !text.isEmpty else { throw EngineValidationError("Local engine produced no transcript.") }
+        return text
+    }
+
+    static func temporaryOutputDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dictator-asr-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                               attributes: [.posixPermissions: 0o700])
+        return directory
+    }
+}
+
+/// Transcribes a finished WAV via the same offline pipeline used for readiness.
 enum QwenASRService {
     struct Result: Sendable {
         let text: String
         let model: String
     }
 
-    /// Transcribe `wavURL`; language is auto-detected by the model (no forced translation).
-    static func transcribe(wavURL: URL) async throws -> Result {
-        let process = Process()
-        process.executableURL = TranscriptionEngine.qwenURL
-        process.arguments = [
-            wavURL.path,
-            "--output-format", "txt",
-            "--output-dir", NSTemporaryDirectory(),
-            "--no-progress",
-        ]
-        let out = Pipe()
-        let err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
-        try process.run()
-
-        // Drain both pipes on background threads while the process runs.
-        let drain: (Pipe) -> Data = { pipe in
-            pipe.fileHandleForReading.readDataToEndOfFile()
-        }
-        async let stdoutData = Task.detached(priority: .utility) { drain(out) }.value
-        async let stderrData = Task.detached(priority: .utility) { drain(err) }.value
-
-        let exitCode = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
-            process.terminationHandler = { proc in continuation.resume(returning: proc.terminationStatus) }
-        }
-        let stdout = try await stdoutData
-        _ = try await stderrData
-        _ = stdout
-
-        guard exitCode == 0 else {
-            throw QwenASRError.processFailed(exit: exitCode)
-        }
-        // mlx-qwen3-asr writes <stem>.txt into --output-dir; stdout carries only chatter.
-        let expected = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent(wavURL.deletingPathExtension().lastPathComponent + ".txt")
-        guard let fromFile = try? String(contentsOf: expected, encoding: .utf8) else {
-            throw QwenASRError.noOutput
-        }
-        let text = fromFile.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw QwenASRError.noOutput }
-        return Result(text: text, model: "qwen3-asr-0.6b")
+    static func transcribe(wavURL: URL, timeout: TimeInterval? = nil) async throws -> Result {
+        let directory = try EngineValidation.temporaryOutputDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let result = try await SubprocessCapture.run(
+            executableURL: TranscriptionEngine.qwenURL,
+            arguments: [wavURL.path, "--model", "Qwen/Qwen3-ASR-0.6B",
+                        "--output-format", "txt", "--output-dir", directory.path, "--no-progress"],
+            environment: TranscriptionEngine.localEnvironment, timeout: timeout)
+        let output = directory.appendingPathComponent(wavURL.deletingPathExtension().lastPathComponent + ".txt")
+        return Result(text: try EngineValidation.checkedText(result, output: output), model: "qwen3-asr-0.6b")
     }
 }
 
-/// Transcribes a finished WAV via the whisper.cpp sidecar (Metal, language auto-detect).
+/// Transcribes a finished WAV via whisper.cpp, including required Silero VAD.
 enum WhisperCppService {
     struct Result: Sendable {
         let text: String
         let model: String
     }
 
-    static func transcribe(wavURL: URL) async throws -> Result {
-        let process = Process()
-        process.executableURL = TranscriptionEngine.wcppURL
-        process.arguments = [
-            "-m", TranscriptionEngine.wcppModelURL.path,
-            "-f", wavURL.path,
-            "-l", "auto",
-            "-t", "8", "-p", "4", "-fa",
-            "-vm", TranscriptionEngine.wcppVADModelURL.path, "--vad",
-            "-np", "-nt",
-            "-otxt", "-of", wavURL.deletingPathExtension().path,
-        ]
-        let out = Pipe()
-        let err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
-        try process.run()
+    static func arguments(wavURL: URL) -> [String] {
+        ["-m", TranscriptionEngine.wcppModelURL.path, "-f", wavURL.path,
+         "-l", "auto", "-t", "8", "-p", "4", "-fa",
+         "-vm", TranscriptionEngine.wcppVADModelURL.path, "--vad"]
+    }
 
-        let drain: (Pipe) -> Data = { pipe in
-            pipe.fileHandleForReading.readDataToEndOfFile()
-        }
-        async let stdoutData = Task.detached(priority: .utility) { drain(out) }.value
-        async let stderrData = Task.detached(priority: .utility) { drain(err) }.value
-
-        let exitCode = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
-            process.terminationHandler = { proc in continuation.resume(returning: proc.terminationStatus) }
-        }
-        let stdout = try await stdoutData
-        _ = try await stderrData
-
-        guard exitCode == 0 else {
-            throw WhisperCppError.processFailed(exit: exitCode)
-        }
-        let text = String(decoding: stdout, as: UTF8.self)
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        guard !text.isEmpty else { throw WhisperCppError.noOutput }
-        return Result(text: text, model: "whisper.cpp large-v3-turbo")
+    static func transcribe(wavURL: URL, timeout: TimeInterval? = nil) async throws -> Result {
+        let directory = try EngineValidation.temporaryOutputDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let output = directory.appendingPathComponent("transcript")
+        let result = try await SubprocessCapture.run(
+            executableURL: TranscriptionEngine.wcppURL,
+            arguments: arguments(wavURL: wavURL) + ["-np", "-nt", "-otxt", "-of", output.path],
+            environment: TranscriptionEngine.localEnvironment, timeout: timeout)
+        return Result(text: try EngineValidation.checkedText(result, output: output.appendingPathExtension("txt")),
+                      model: "whisper.cpp large-v3-turbo")
     }
 }
 
@@ -183,13 +195,8 @@ final class WhisperCppFileTask: @unchecked Sendable {
         let file = try AVAudioFile(forReading: wavURL)
         duration = Double(file.length) / file.fileFormat.sampleRate
         process.executableURL = TranscriptionEngine.wcppURL
-        process.arguments = [
-            "-m", TranscriptionEngine.wcppModelURL.path,
-            "-f", wavURL.path,
-            "-l", "auto",
-            "-t", "8", "-p", "4", "-fa",
-            "-vm", TranscriptionEngine.wcppVADModelURL.path, "--vad",
-        ]
+        process.arguments = WhisperCppService.arguments(wavURL: wavURL)
+        process.environment = TranscriptionEngine.localEnvironment
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
     }

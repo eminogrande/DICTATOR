@@ -27,15 +27,22 @@ final class LocalTranscriber {
             withIntermediateDirectories: true
         )
 
+        let folder = modelDirectory.appendingPathComponent("models/argmaxinc/whisperkit-coreml/openai_whisper-large-v3_turbo")
+        guard FileManager.default.fileExists(atPath: folder.path) else {
+            throw EngineValidationError("Built-in model is not installed. Choose Fast or install the local model.")
+        }
         let config = WhisperKitConfig(
             model: "large-v3_turbo",
             downloadBase: modelDirectory,
+            modelFolder: folder.path,
             verbose: false,
             prewarm: false,
             load: true,
+            download: false,
             useBackgroundDownloadSession: false
         )
-        whisperKit = try await WhisperKit(config)
+        // CoreML file loading/compilation must not occupy the main actor.
+        whisperKit = try await Task.detached(priority: .utility) { try await WhisperKit(config) }.value
     }
 
     func startStreaming(
@@ -114,7 +121,8 @@ final class LocalTranscriber {
         await streamTranscriber.stopStreamTranscription()
         await streamTask?.value
         defer { clearStream() }
-        if let streamError { throw streamError }
+        // A preview decoder failure must not discard microphone samples; the
+        // selected validated engine still gets the saved audio for its final pass.
         let microphone = Array(whisperKit.audioProcessor.audioSamples)
         guard !microphone.isEmpty else { throw TranscriptionError.emptyAudio }
         let samples = AudioSampleMixer.mix(
@@ -124,6 +132,13 @@ final class LocalTranscriber {
         )
         try Self.writeWAV(samples, to: audioURL)
         return microphone
+    }
+
+    func transcribe(wavURL: URL) async throws -> String {
+        let samples = try await Task.detached(priority: .utility) {
+            try AudioProcessor.loadAudioAsFloatArray(fromPath: wavURL.path)
+        }.value
+        return try await transcribe(samples: samples)
     }
 
     func transcribe(samples: [Float]) async throws -> String {

@@ -12,11 +12,17 @@ public struct CapturedSubprocessResult: Sendable {
     }
 }
 
+public struct SubprocessTimeout: LocalizedError {
+    public var errorDescription: String? { "Local engine validation timed out. Retry or choose another quality." }
+}
+
 public enum SubprocessCapture {
     public static func run(
         executableURL: URL,
         arguments: [String],
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        environment: [String: String]? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> CapturedSubprocessResult {
         try await Task.detached {
             let fileManager = FileManager.default
@@ -54,9 +60,23 @@ public enum SubprocessCapture {
             process.executableURL = executableURL
             process.arguments = arguments
             process.currentDirectoryURL = currentDirectoryURL
+            process.environment = environment
             process.standardOutput = stdoutHandle
             process.standardError = stderrHandle
+            let finished = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in finished.signal() }
             try process.run()
+            if let timeout, finished.wait(timeout: .now() + timeout) == .timedOut {
+                // Only the process owned by this call (a readiness probe) is stopped.
+                process.terminate()
+                if finished.wait(timeout: .now() + 2) == .timedOut {
+                    kill(process.processIdentifier, SIGKILL)
+                    finished.wait()
+                }
+                throw SubprocessTimeout()
+            } else if timeout == nil {
+                finished.wait()
+            }
             process.waitUntilExit()
             try stdoutHandle.close()
             try stderrHandle.close()

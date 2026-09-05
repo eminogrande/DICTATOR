@@ -1,3 +1,5 @@
+import Foundation
+
 public struct TranscriptionHUDPresentation: Equatable, Sendable {
     public let title: String
     public let confirmed: String
@@ -26,6 +28,7 @@ public struct TranscriptionHUDPresentation: Equatable, Sendable {
 
     public static func make(
         isVisible: Bool,
+        isRecording: Bool = false,
         title: String,
         confirmed: String,
         provisional: String,
@@ -37,7 +40,8 @@ public struct TranscriptionHUDPresentation: Equatable, Sendable {
     ) -> TranscriptionHUDPresentation? {
         guard isVisible else { return nil }
         return TranscriptionHUDPresentation(
-            title: title,
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? (isRecording ? "Recording — listening…" : "Loading…") : title,
             confirmed: confirmed,
             provisional: provisional,
             audio: audio

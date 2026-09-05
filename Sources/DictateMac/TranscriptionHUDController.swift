@@ -25,29 +25,14 @@ final class TranscriptionHUDController {
             model.isHiddenByUser = false
         }
         let presentation = TranscriptionHUDPresentation.make(
-            isVisible: controller.isTranscribing,
-            title: controller.transcriptionHUDTitle,
+            isVisible: controller.isTranscribing || controller.isRecording || controller.blockedHUDVisible,
+            isRecording: controller.isRecording,
+            title: controller.blockedHUDVisible ? controller.readinessStatus : controller.transcriptionHUDTitle,
             confirmed: controller.liveConfirmedText,
             provisional: controller.liveProvisionalText,
             audio: controller.liveAudioProgress
         )
-        guard let presentation else {
-            // Still recording with no live text yet: keep the panel up as a thin recorder.
-            if controller.isRecording && !model.isHiddenByUser {
-                let panel = panel ?? makePanel()
-                self.panel = panel
-                model.isLatchedRecording = controller.isLatchedRecording
-                model.onStop = { [weak controller] in controller?.toggleRecording() }
-                model.presentation = TranscriptionHUDPresentation(title: "", confirmed: "", provisional: "")
-                panel.setContentSize(NSSize(width: 680, height: TranscriptionHUDLayout.footerHeight + 48))
-                panel.ignoresMouseEvents = !controller.isLatchedRecording
-                position(panel)
-                panel.orderFrontRegardless()
-            } else {
-                panel?.orderOut(nil)
-            }
-            return
-        }
+        guard let presentation else { panel?.orderOut(nil); return }
         guard !model.isHiddenByUser else {
             panel?.orderOut(nil)
             return
@@ -62,6 +47,7 @@ final class TranscriptionHUDController {
         model.shouldFollowBottom = layout.textOverflows
         model.showPhaseProgress = !controller.isRecording && !presentation.title.isEmpty
         model.isLatchedRecording = latched
+        model.isRecording = controller.isRecording
         model.onStop = { [weak controller] in controller?.toggleRecording() }
         model.presentation = presentation
         panel.setContentSize(NSSize(width: 680, height: layout.panelHeight))
@@ -121,7 +107,7 @@ final class TranscriptionHUDController {
         return TranscriptionHUDLayout.make(
             textHeight: textHeight > 0 ? textHeight + 6 : 0,
             hasHeader: presentation.audio.audioDuration > 0,
-            hasFooter: isLatched || (!isRecording && !presentation.title.isEmpty),
+            hasFooter: isLatched || !presentation.title.isEmpty,
             screenHeight: screenHeight
         )
     }
@@ -139,6 +125,7 @@ private final class TranscriptionHUDModel: ObservableObject {
     @Published var shouldFollowBottom = false
     @Published var showPhaseProgress = false
     @Published var isLatchedRecording = false
+    @Published var isRecording = false
     @Published var isHiddenByUser = false
     var onStop: (() -> Void)?
 }
@@ -190,6 +177,14 @@ private struct TranscriptionHUDView: View {
                     .tint(.red)
                 }
                 .frame(height: TranscriptionHUDLayout.footerHeight, alignment: .leading)
+            } else if model.isRecording {
+                HStack(spacing: 12) {
+                    Circle().fill(Color.red).frame(width: 14, height: 14)
+                    Text(model.presentation.title)
+                        .font(.system(size: 17, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white)
+                }
+                .frame(height: TranscriptionHUDLayout.footerHeight, alignment: .leading)
             } else if model.showPhaseProgress {
                 HStack(spacing: 12) {
                     ProgressView()
@@ -220,7 +215,7 @@ private struct TranscriptionHUDView: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(.white.opacity(0.16), lineWidth: 1)
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Live transcript")
     }
 }

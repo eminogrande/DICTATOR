@@ -11,6 +11,17 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    HStack(spacing: 10) {
+                        if controller.readiness.isLoading { ProgressView().controlSize(.small) }
+                        Text(controller.hasActiveWork ? controller.statusText : controller.readinessStatus)
+                            .font(.system(size: 17))
+                            .accessibilityIdentifier("engine-readiness-status")
+                        if controller.readiness.error != nil {
+                            Button("Retry") { controller.retryReadiness() }
+                                .disabled(controller.hasActiveWork)
+                        }
+                    }
+
                     // Record — the one thing that matters.
                     Button(action: { controller.toggleRecording() }) {
                         Label(controller.recordButtonTitle, systemImage: controller.isRecording ? "stop.circle.fill" : "mic.circle.fill")
@@ -30,7 +41,7 @@ struct SettingsView: View {
                             .padding(.vertical, 12)
                     }
                     .buttonStyle(.bordered)
-                    .disabled(controller.isRecording)
+                    .disabled(!controller.canTranscribeFile)
 
                     if controller.isTranscribingFile {
                         VStack(alignment: .leading, spacing: 10) {
@@ -95,6 +106,10 @@ struct SettingsView: View {
                                 }
                             }
                             .pickerStyle(.segmented)
+                            .disabled(controller.hasActiveWork)
+                            if let error = controller.readiness.error {
+                                Text(error).font(.system(size: 17)).textSelection(.enabled)
+                            }
 
                             Toggle("Correct names", isOn: $controller.aiEnhancementEnabled)
                                 .toggleStyle(.switch)

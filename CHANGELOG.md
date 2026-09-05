@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.27 — 2026-09-05
+
+### Rationale
+
+Recording must never start with an untested final engine, and the Fn overlay must never be empty while preview loads or is unavailable.
+
+- Validate selected local engine with a bundled speech sample, including runtime loading and VAD; show Loading, Ready, or an actionable error and Retry.
+- Keep optional preview separate; retain real live text and show explicit recording status when it is absent.
+- Invalidate stale selection results, pin each job to its engine, preserve archives and background file work.
+- Resolve installed whisper.cpp dylibs beside its executable rather than a stale build directory.
+- Built-in file transcription now uses the selected Built-in engine; audio conversion runs off the UI thread.
+- Regression tests cover readiness, blocked Fn, stale selections, nonempty HUD and probe timeouts.
+
 ## 0.9.26 — 2026-08-31
 
 - Transcript list: folder icon per entry reveals the file in Finder (alongside Copy).

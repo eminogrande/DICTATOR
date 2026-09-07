@@ -148,6 +148,8 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
     public var systemAudioOffset: Double?
     public var captureWarning: String?
     public var transcriptionAudioFilename: String?
+    /// Derived microphone-only WAV. audioFilename always remains the original source.
+    public var recoveredAudioFilename: String?
     public var rawTranscriptFilename: String?
     public var enhancementModel: String?
     public var enhancementEvidencePaths: [String]?
@@ -173,6 +175,7 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
         autoPasteEnabled: Bool? = nil,
         meetingCaptureEnabled: Bool? = nil,
         systemAudioCaptured: Bool? = nil,
+        recoveredAudioFilename: String? = nil,
         rawTranscriptFilename: String? = nil,
         enhancementModel: String? = nil,
         enhancementEvidencePaths: [String]? = nil,
@@ -197,6 +200,7 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
         self.autoPasteEnabled = autoPasteEnabled
         self.meetingCaptureEnabled = meetingCaptureEnabled
         self.systemAudioCaptured = systemAudioCaptured
+        self.recoveredAudioFilename = recoveredAudioFilename
         self.rawTranscriptFilename = rawTranscriptFilename
         self.enhancementModel = enhancementModel
         self.enhancementEvidencePaths = enhancementEvidencePaths
@@ -451,8 +455,63 @@ public struct ArchiveStore: Sendable {
         for var session in sessions() where session.metadata.status == .recording || session.metadata.status == .transcribing {
             session.metadata.status = .saved
             session.metadata.error = "Interrupted — audio retained. Transcribe when ready."
+            do {
+                session = try recoverMicrophone(for: session)
+            } catch {
+                let warning = "Microphone recovery unavailable: \(error.localizedDescription)"
+                session.metadata.captureWarning = Self.appendingWarning(warning, to: session.metadata.captureWarning)
+            }
+            // Invalid/fake WAVs do not hide this session or abort recovery of other takes.
             try writeMetadata(for: session)
         }
+    }
+
+    /// Recover only known native, inactive microphone sessions. The caller must hold
+    /// exclusive capture ownership. Returns unchanged metadata for valid/foreign audio.
+    /// Never use transcriptionAudioFilename here: it may represent a mic + Mac mix.
+    public func recoverMicrophone(for original: DictationSession) throws -> DictationSession {
+        guard original.metadata.status != .recording && original.metadata.status != .transcribing else {
+            throw PCMRecordingRecovery.RecoveryError.activeSession
+        }
+        guard original.metadata.recordingKind == "meeting" || original.metadata.recordingKind == "dictation" ||
+                original.metadata.sourceApplication == "Meeting" else { return original }
+        var session = original
+        // Honor an earlier successful call even if a retry retained an old in-memory value.
+        if session.metadata.recoveredAudioFilename == nil,
+           let persisted = try? MetadataCodec.decode(Data(contentsOf: session.metadataURL)),
+           persisted.sessionID == session.metadata.sessionID,
+           persisted.audioFilename == session.metadata.audioFilename,
+           let recovered = persisted.recoveredAudioFilename {
+            session.metadata.recoveredAudioFilename = recovered
+            if let warning = persisted.captureWarning {
+                session.metadata.captureWarning = Self.appendingWarning(warning, to: session.metadata.captureWarning)
+            }
+        }
+        if let filename = session.metadata.recoveredAudioFilename {
+            guard filename == URL(fileURLWithPath: filename).lastPathComponent,
+                  FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(filename).path) else {
+                throw PCMRecordingRecovery.RecoveryError.unsupportedOrInvalid
+            }
+            return session
+        }
+        let destination = session.folderURL.appendingPathComponent(
+            session.audioURL.deletingPathExtension().lastPathComponent + ".recovered-" + UUID().uuidString + ".wav")
+        guard try PCMRecordingRecovery.recover(source: session.audioURL, destination: destination) else { return original }
+        session.metadata.recoveredAudioFilename = destination.lastPathComponent
+        session.metadata.captureWarning = Self.appendingWarning(
+            "Recovered microphone audio into a separate WAV; original retained.", to: session.metadata.captureWarning)
+        // The recovery primitive synchronizes the derived WAV before metadata is published.
+        do { try writeMetadata(for: session) }
+        catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+        return session
+    }
+
+    private static func appendingWarning(_ warning: String, to existing: String?) -> String {
+        guard let existing, !existing.isEmpty else { return warning }
+        return existing.contains(warning) ? existing : existing + "\n" + warning
     }
 
     /// Finish a retained session without renaming or rewriting any source audio.

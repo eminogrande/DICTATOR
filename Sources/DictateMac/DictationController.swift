@@ -12,6 +12,8 @@ final class DictationController: ObservableObject {
     @Published private(set) var blockedHUDVisible = false
     @Published private(set) var latestTranscript = ""
     @Published private(set) var sessions: [DictationSession] = []
+    @Published private(set) var libraryDetails: [String: SessionLibraryInfo] = [:]
+    @Published var selectedLibrarySessionID: String?
     @Published private(set) var activityPhase = "idle"
     @Published private(set) var activityStartedAt: Date?
     @Published private(set) var recordingElapsed: TimeInterval = 0
@@ -242,6 +244,9 @@ final class DictationController: ObservableObject {
             var imported: DictationSession?
             do {
                 var session = try archive.startSession(sourceApplication: "Audio File")
+                session.metadata.originalFilename = url.lastPathComponent
+                session.metadata.recordingKind = "import"
+                try archive.writeMetadata(for: session)
                 imported = session
                 activeSessionID = session.metadata.sessionID
                 refreshSessions()
@@ -268,11 +273,69 @@ final class DictationController: ObservableObject {
         statusText = "Stopping transcription — audio retained"
     }
 
-    func refreshSessions() { sessions = archive?.sessions() ?? [] }
+    func refreshSessions() {
+        let rows = archive?.sessions() ?? []
+        var details: [String: SessionLibraryInfo] = [:]
+        for row in rows { details[row.metadata.sessionID] = SessionLibraryInfo(session: row) }
+        libraryDetails = details
+        sessions = rows
+    }
+
+    func renameSession(_ id: String, title: String) throws {
+        guard !hasActiveWork else { throw LibraryActionError.busy }
+        guard let archive, var session = archive.sessions().first(where: { $0.metadata.sessionID == id }) else {
+            throw LibraryActionError.missingSession
+        }
+        guard session.metadata.status != .recording && session.metadata.status != .transcribing else {
+            throw LibraryActionError.busy
+        }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.count <= 160, title.rangeOfCharacter(from: .controlCharacters) == nil else {
+            throw LibraryActionError.invalidTitle
+        }
+        session.metadata.displayTitle = title.isEmpty ? nil : title
+        try archive.writeMetadata(for: session)
+        refreshSessions()
+    }
+
+    func exportSessionTranscript(_ id: String) {
+        guard let session = sessions.first(where: { $0.metadata.sessionID == id }),
+              let data = try? Data(contentsOf: session.transcriptURL), !data.isEmpty else { return }
+        let panel = NSSavePanel()
+        panel.title = "Transkript exportieren"
+        panel.allowedContentTypes = [.plainText]
+        panel.allowsOtherFileTypes = false
+        panel.nameFieldStringValue = session.transcriptURL.lastPathComponent
+        panel.canCreateDirectories = true
+        panel.begin { response in
+            guard response == .OK, let destination = panel.url,
+                  destination.standardizedFileURL != session.transcriptURL.standardizedFileURL else { return }
+            do { try data.write(to: destination, options: .atomic) }
+            catch {
+                let alert = NSAlert(error: error)
+                alert.messageText = "Export nicht möglich"
+                alert.runModal()
+            }
+        }
+    }
+
+    private enum LibraryActionError: LocalizedError {
+        case busy, missingSession, invalidTitle
+        var errorDescription: String? {
+            switch self {
+            case .busy: return "Bitte die laufende Aufnahme oder Umwandlung zuerst beenden."
+            case .missingSession: return "Diese Aufnahme wurde nicht gefunden."
+            case .invalidTitle: return "Bitte einen Titel mit höchstens 160 Zeichen ohne Zeilenumbruch verwenden."
+            }
+        }
+    }
 
     func retryTranscription(_ id: String) {
         guard !hasActiveWork, let session = archive?.sessions().first(where: { $0.metadata.sessionID == id }) else { return }
-        guard session.metadata.status != .completed else { return }
+        if session.metadata.status == .completed {
+            let text = (try? String(contentsOf: session.transcriptURL, encoding: .utf8)) ?? ""
+            guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        }
         operationInProgress = true
         isBusy = true
         activeSessionID = id
@@ -666,10 +729,20 @@ final class DictationController: ObservableObject {
         }
         operationInProgress = true
         isBusy = true
+        NotificationCenter.default.post(name: Notification.Name("DICTATORCaptureWillStart"), object: nil)
+        defer {
+            if !isRecording && activityPhase == "starting" { activityPhase = "idle" }
+            NotificationCenter.default.post(name: Notification.Name("DICTATORCaptureStartupDidFinish"), object: isRecording)
+        }
+        activityPhase = "starting"
         statusText = "Requesting microphone access…"
 
-        guard await AudioRecorder.requestPermission() else {
+        let permissionGranted: Bool
+        if let meetingPermission { permissionGranted = await meetingPermission() }
+        else { permissionGranted = await AudioRecorder.requestPermission() }
+        guard permissionGranted else {
             microphoneGranted = false
+            activityPhase = "failed"
             statusText = "Microphone denied — allow it in System Settings"
             isBusy = false
             operationInProgress = false
@@ -737,6 +810,7 @@ final class DictationController: ObservableObject {
 
             currentSessionAutoPasteEnabled = autoPasteEnabled
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
+            session.metadata.recordingKind = "dictation"
             session.metadata.meetingCaptureEnabled = captureMeeting
             session.metadata.systemAudioCaptured = systemAudioCapture != nil
             try archive.writeMetadata(for: session)
@@ -778,6 +852,7 @@ final class DictationController: ObservableObject {
             }
             systemAudioCapture = nil
             microphoneStartedAt = nil
+            activityPhase = "failed"
             statusText = "Recording failed: \(error.localizedDescription)"
             isBusy = false
             operationInProgress = false
@@ -986,9 +1061,13 @@ final class DictationController: ObservableObject {
 
     private func startMeeting(includeSystemAudio: Bool) async {
         guard !hasActiveWork, let archive else { return }
+        NotificationCenter.default.post(name: Notification.Name("DICTATORCaptureWillStart"), object: nil)
         isMeetingStarting = true
         meetingStartupCancelled = false
-        defer { isMeetingStarting = false }
+        defer {
+            isMeetingStarting = false
+            NotificationCenter.default.post(name: Notification.Name("DICTATORCaptureStartupDidFinish"), object: isRecording)
+        }
         operationInProgress = true
         isBusy = true
         activityPhase = "starting"
@@ -1015,6 +1094,7 @@ final class DictationController: ObservableObject {
         do {
             var session = try archive.startSession(sourceApplication: "Meeting")
             session.metadata.autoPasteEnabled = false
+            session.metadata.recordingKind = "meeting"
             session.metadata.meetingCaptureEnabled = includeSystemAudio
             session.metadata.systemAudioCaptured = false
             try archive.writeMetadata(for: session)

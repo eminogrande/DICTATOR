@@ -133,6 +133,9 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
     public var transcriptFilename: String
     public var metadataFilename: String?
     public var headline: String?
+    public var displayTitle: String?
+    public var originalFilename: String?
+    public var recordingKind: String?
     public var summary: String?
     public var keywords: [String]?
     public var status: DictationStatus

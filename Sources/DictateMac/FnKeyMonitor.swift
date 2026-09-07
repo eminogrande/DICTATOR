@@ -108,7 +108,7 @@ final class FnKeyMonitor {
         guard event.keyCode == Self.rKeyCode, event.modifierFlags.contains(.function) else {
             return false
         }
-        onAction(.toggle)
+        if !event.isARepeat { onAction(.toggle) }
         return true
     }
 
@@ -125,7 +125,9 @@ final class FnKeyMonitor {
                 }
                 let key = event.getIntegerValueField(.keyboardEventKeycode)
                 if key == 15, event.flags.contains(.maskSecondaryFn) {
-                    Unmanaged<TapOwner>.fromOpaque(userInfo).takeUnretainedValue().handler()
+                    if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+                        Unmanaged<TapOwner>.fromOpaque(userInfo).takeUnretainedValue().handler()
+                    }
                     return nil
                 }
                 return Unmanaged.passUnretained(event)

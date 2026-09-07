@@ -14,7 +14,8 @@ struct DictateMacApp: App {
 
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let dictationController = DictationController()
+    private lazy var dictationController = DictationController()
+    private var duplicateInstance = false
     private let brainController = BrainController()
     private var transcriptionHUD: TranscriptionHUDController?
     private var menuController: DictatorMenuController?
@@ -22,6 +23,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A second copy must never reinterpret another instance's active sessions.
+        if let id = Bundle.main.bundleIdentifier,
+           NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+            duplicateInstance = true
+            NSApplication.shared.terminate(nil)
+            return
+        }
         NSApplication.shared.setActivationPolicy(.regular)
         transcriptionHUD = TranscriptionHUDController(controller: dictationController)
         menuController = DictatorMenuController(
@@ -36,6 +44,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if duplicateInstance { return .terminateNow }
+        guard dictationController.hasActiveWork else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "DICTATOR is still working"
+        alert.informativeText = dictationController.isRecording
+            ? "Stop the recording first so its audio is safely saved. Closing the window keeps recording."
+            : "Wait for transcription or stop it from Sessions. Closing the window keeps it running."
+        alert.addButton(withTitle: "Keep working")
+        alert.runModal()
+        return .terminateCancel
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showSettings()
+        return true
     }
 
     private func showBrain() {

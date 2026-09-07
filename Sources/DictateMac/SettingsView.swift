@@ -1,4 +1,5 @@
 import SwiftUI
+import DictateMacCore
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
@@ -8,133 +9,106 @@ struct SettingsView: View {
     @State private var showFilePicker = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack(spacing: 10) {
-                        if controller.readiness.isLoading { ProgressView().controlSize(.small) }
-                        Text(controller.hasActiveWork ? controller.statusText : controller.readinessStatus)
-                            .font(.system(size: 17))
-                            .accessibilityIdentifier("engine-readiness-status")
-                        if controller.readiness.error != nil {
-                            Button("Retry") { controller.retryReadiness() }
-                                .disabled(controller.hasActiveWork)
-                        }
-                    }
-
-                    // Record — the one thing that matters.
-                    Button(action: { controller.toggleRecording() }) {
-                        Label(controller.recordButtonTitle, systemImage: controller.isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 22)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(controller.isRecording ? .red : .accentColor)
-                    .disabled(!controller.canToggleRecording)
-
-                    // Transcribe a file.
-                    Button(action: { showFilePicker = true }) {
-                        Label("Transcribe file", systemImage: "doc.badge.plus")
-                            .font(.system(size: 17, weight: .medium))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!controller.canTranscribeFile)
-
-                    if controller.isTranscribingFile {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ProgressView(value: controller.fileProgress)
-                                .progressViewStyle(.linear)
-                            HStack {
-                                Text(controller.filePartialText.isEmpty ? "…" : controller.filePartialText)
-                                    .font(.system(size: 15))
-                                    .lineLimit(2)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Button("Stop", role: .destructive) { controller.cancelFileTranscription() }
-                            }
-                        }
-                        .padding(14)
-                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
-                    }
-
-                    // Transcripts.
-                    if !recentTranscripts.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(recentTranscripts, id: \.id) { entry in
-                                HStack {
-                                    Text(entry.headline)
-                                        .font(.system(size: 16))
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Button {
-                                        controller.revealTranscriptInFolder(entry.id)
-                                    } label: {
-                                        Image(systemName: "folder")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .help("Show in Finder")
-                                    Button("Copy") {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString(entry.text, forType: .string)
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .foregroundStyle(.tint)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                    }
-
-                    // Everything technical, collapsed.
-                    DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Toggle("Paste automatically", isOn: $controller.autoPasteEnabled)
-                                .toggleStyle(.switch)
-                            Toggle("Include computer audio", isOn: $controller.meetingCaptureEnabled)
-                                .toggleStyle(.switch)
-                                .onChange(of: controller.meetingCaptureEnabled) { _, enabled in
-                                    if enabled, !controller.systemAudioGranted {
-                                        controller.requestSystemAudioPermission()
-                                    }
-                                }
-                            Picker("Quality", selection: $controller.transcriptionEngine) {
-                                ForEach(TranscriptionEngine.allCases) { engine in
-                                    Text(engine.displayName).tag(engine)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .disabled(controller.hasActiveWork)
-                            if let error = controller.readiness.error {
-                                Text(error).font(.system(size: 17)).textSelection(.enabled)
-                            }
-
-                            Toggle("Correct names", isOn: $controller.aiEnhancementEnabled)
-                                .toggleStyle(.switch)
-                            SecureField("AI key", text: $apiKeyDraft)
-                                .textFieldStyle(.roundedBorder)
-                                .onSubmit(saveKey)
-
-                            if !controller.microphoneGranted {
-                                Button("Allow microphone") { controller.requestMicrophonePermission() }
-                            }
-                            if !controller.systemAudioGranted {
-                                Button("Allow computer audio") { controller.requestSystemAudioPermission() }
-                            }
-                            if !controller.accessibilityGranted {
-                                Button("Allow paste") { controller.requestAccessibilityPermission() }
-                            }
-                        }
-                        .padding(.top, 10)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 18) {
+                SessionActivityView(controller: controller)
+                HStack {
+                    Text(controller.readinessStatus).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("engine-readiness-status")
+                    if controller.readiness.error != nil {
+                        Button("Retry setup") { controller.retryReadiness() }.disabled(controller.hasActiveWork)
                     }
                 }
-                .padding(20)
+
+                Button(action: { controller.toggleRecording() }) {
+                    Label(controller.recordButtonTitle, systemImage: controller.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(controller.isRecording ? .red : .accentColor)
+                .disabled(!controller.canToggleRecording)
+                .accessibilityIdentifier("record-or-stop")
+
+                Button(action: { showFilePicker = true }) {
+                    Label("Transcribe file", systemImage: "doc.badge.plus")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!controller.canTranscribeFile)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Sessions").fontWeight(.semibold)
+                    if controller.sessions.isEmpty {
+                        Text("Your recordings will appear here.")
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(controller.sessions.sorted { $0.metadata.startedAt > $1.metadata.startedAt }, id: \.metadata.sessionID) { session in
+                            sessionRow(session)
+                            Divider()
+                        }
+                    }
+                }
+                .accessibilityIdentifier("all-sessions")
+
+                DisclosureGroup("Advanced", isExpanded: $showAdvanced) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Recording works without a transcription model.")
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(controller.readinessStatus)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("engine-readiness-status")
+                        if controller.readiness.isLoading { ProgressView().controlSize(.small) }
+                        if let error = controller.readiness.error {
+                            Text(error).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                            Button("Retry transcription setup") { controller.retryReadiness() }
+                                .disabled(controller.hasActiveWork)
+                        }
+                        Toggle("Paste automatically", isOn: $controller.autoPasteEnabled)
+                            .toggleStyle(.switch)
+                        Toggle("Include computer audio", isOn: $controller.meetingCaptureEnabled)
+                            .toggleStyle(.switch)
+                            .disabled(controller.hasActiveWork)
+                            .onChange(of: controller.meetingCaptureEnabled) { _, enabled in
+                                if enabled, !controller.systemAudioGranted {
+                                    controller.requestSystemAudioPermission()
+                                }
+                            }
+                        Picker("Quality", selection: $controller.transcriptionEngine) {
+                            ForEach(TranscriptionEngine.allCases) { engine in
+                                Text(engine.displayName).tag(engine)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(controller.hasActiveWork)
+                        Toggle("Correct names", isOn: $controller.aiEnhancementEnabled)
+                            .toggleStyle(.switch)
+                        SecureField("AI key", text: $apiKeyDraft)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(saveKey)
+                        if !controller.microphoneGranted {
+                            Button("Allow microphone") { controller.requestMicrophonePermission() }
+                        }
+                        if !controller.systemAudioGranted {
+                            Button("Allow computer audio") { controller.requestSystemAudioPermission() }
+                        }
+                        if !controller.accessibilityGranted {
+                            Button("Allow paste") { controller.requestAccessibilityPermission() }
+                        }
+                    }
+                    .padding(.top, 10)
+                }
             }
+            .font(.system(size: 17, design: .monospaced))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
         }
-        .frame(width: 420, height: 520)
+        .frame(width: 440, height: 620)
         .onAppear {
+            controller.refreshSessions()
             controller.refreshAccessibilityPermission()
             controller.refreshRecordingPermissions()
         }
@@ -149,14 +123,45 @@ struct SettingsView: View {
         }
     }
 
+    private func sessionRow(_ session: DictationSession) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(session.metadata.headline?.isEmpty == false ? session.metadata.headline! : session.metadata.startedAt.formatted(date: .abbreviated, time: .shortened))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Text(session.metadata.startedAt.formatted(date: .abbreviated, time: .shortened) + (session.metadata.durationSeconds.map { " · " + SessionActivityPresentation.duration($0) } ?? ""))
+                .foregroundStyle(.secondary)
+            Text(SessionActivityPresentation.status(session.metadata.status.rawValue))
+                .foregroundStyle(Color(nsColor: SessionActivityPresentation.color(session.metadata.status.rawValue)))
+                .fixedSize(horizontal: false, vertical: true)
+            if let warning = session.metadata.captureWarning { Text(warning).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
+            if let error = session.metadata.error, !error.isEmpty, !error.hasPrefix("Audio saved. Loading ") {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            }
+            // Separate short rows keep every action visible without horizontal scrolling.
+            HStack(spacing: 14) {
+                Button("Show audio") { controller.revealAudioInFolder(session.metadata.sessionID) }
+                if session.metadata.status == .completed {
+                    Button("Copy") { controller.copySessionTranscript(session.metadata.sessionID) }
+                    Button("Open") { controller.openTranscript(session.metadata.sessionID) }
+                }
+            }
+            .buttonStyle(.borderless)
+            if session.metadata.status != .completed {
+                Button(session.metadata.status == .saved ? "Transcribe" : "Retry transcription") {
+                    controller.retryTranscription(session.metadata.sessionID)
+                }
+                .disabled(!controller.canRetryTranscription)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("session-\(session.metadata.sessionID)")
+    }
+
     private func saveKey() {
         controller.saveOpenRouterAPIKey(apiKeyDraft)
         apiKeyDraft = ""
-    }
-
-    private var recentTranscripts: [(id: String, headline: String, text: String)] {
-        controller.recentTranscriptsForMenu(limit: 6).map { entry in
-            (id: entry.id, headline: entry.displayTitle, text: entry.text)
-        }
     }
 }

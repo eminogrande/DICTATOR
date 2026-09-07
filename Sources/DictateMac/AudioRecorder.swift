@@ -2,7 +2,16 @@ import AVFoundation
 import Foundation
 
 @MainActor
-final class AudioRecorder {
+protocol MicrophoneRecording: AnyObject {
+    var isRecording: Bool { get }
+    var elapsed: TimeInterval { get }
+    var level: Float { get }
+    func start(at url: URL) throws
+    func stop()
+}
+
+@MainActor
+final class AudioRecorder: MicrophoneRecording {
     private var recorder: AVAudioRecorder?
     private var stoppedElapsed: TimeInterval = 0
 

@@ -90,7 +90,7 @@ final class DictationController: ObservableObject {
     private static let engineDefaultsKey = "transcriptionEngine"
 
     private let transcriber = LocalTranscriber()
-    private let micRecorder = AudioRecorder()
+    private let micRecorder: any MicrophoneRecording
     private let targetTracker = TargetApplicationTracker()
     private let evidenceProvider = BrainEvidenceProvider()
     private let keyStore = OpenRouterKeyStore()
@@ -151,7 +151,9 @@ final class DictationController: ObservableObject {
          readinessValidator: ((TranscriptionEngine) async throws -> Void)? = nil,
          archiveStore: ArchiveStore? = nil,
          fileTranscriber: ((URL) async throws -> String)? = nil,
-         meetingPermission: (() async -> Bool)? = nil) {
+         meetingPermission: (() async -> Bool)? = nil,
+         microphoneRecorder: (any MicrophoneRecording)? = nil) {
+        self.micRecorder = microphoneRecorder ?? AudioRecorder()
         self.meetingPermission = meetingPermission
         self.archive = archiveStore
         self.fileTranscriber = fileTranscriber
@@ -348,6 +350,7 @@ final class DictationController: ObservableObject {
     func revealAudioInFolder(_ id: String) {
         guard let session = sessions.first(where: { $0.metadata.sessionID == id }) else { return }
         var files = [session.audioURL]
+        if let name = session.metadata.recoveredAudioFilename { files.append(session.folderURL.appendingPathComponent(name)) }
         if let name = session.metadata.systemAudioFilename { files.append(session.folderURL.appendingPathComponent(name)) }
         NSWorkspace.shared.activateFileViewerSelecting(files.filter { FileManager.default.fileExists(atPath: $0.path) })
     }
@@ -364,6 +367,28 @@ final class DictationController: ObservableObject {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    /// Shared by first Stop and Retry: recover the mic before any mixed file can be selected.
+    func prepareSavedAudio(for original: DictationSession) async throws -> DictationSession {
+        guard let archive else { throw CocoaError(.fileReadNoSuchFile) }
+        var session = try archive.recoverMicrophone(for: original)
+        if session.metadata.transcriptionAudioFilename == nil,
+           let systemName = session.metadata.systemAudioFilename,
+           FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(systemName).path),
+           (Self.audioDuration(session.folderURL.appendingPathComponent(systemName)) ?? 0) > 0 {
+            let microphone = session.folderURL.appendingPathComponent(session.metadata.recoveredAudioFilename ?? session.metadata.audioFilename)
+            let system = session.folderURL.appendingPathComponent(systemName)
+            let offset = session.metadata.systemAudioOffset ?? 0
+            let mixed = session.audioURL.deletingPathExtension().appendingPathExtension("mixed-" + UUID().uuidString + ".wav")
+            try await Task.detached(priority: .utility) {
+                try MeetingAudioFile.mix(microphone: microphone, system: system, destination: mixed, offset: offset)
+            }.value
+            session.metadata.transcriptionAudioFilename = mixed.lastPathComponent
+        }
+        let audio = session.folderURL.appendingPathComponent(session.metadata.transcriptionAudioFilename ?? session.metadata.recoveredAudioFilename ?? session.metadata.audioFilename)
+        session.metadata.durationSeconds = Self.audioDuration(audio) ?? session.metadata.durationSeconds
+        return session
+    }
+
     private func transcribeSavedSession(_ original: DictationSession) async {
         guard let archive else { return }
         var session = original
@@ -372,6 +397,7 @@ final class DictationController: ObservableObject {
         fileProgress = 0
         filePartialText = ""
         do {
+            session = try await prepareSavedAudio(for: session)
             // Meetings/retries can outlive readiness startup. Never wait for a stuck preview.
             if fileTranscriber == nil && !modelReady {
                 session.metadata.status = .saved
@@ -389,22 +415,7 @@ final class DictationController: ObservableObject {
             activityPhase = "transcribing"
             isTranscribingFile = true
             statusText = "Transcribing locally, please wait…"
-            // Interrupted/mix-failed recordings still retain both source tracks for retry.
-            if session.metadata.transcriptionAudioFilename == nil,
-               let name = session.metadata.systemAudioFilename,
-               FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(name).path),
-               (Self.audioDuration(session.folderURL.appendingPathComponent(name)) ?? 0) > 0 {
-                let mic = session.audioURL
-                let system = session.folderURL.appendingPathComponent(name)
-                let mixed = mic.deletingPathExtension().appendingPathExtension("mixed-" + UUID().uuidString + ".wav")
-                let offset = session.metadata.systemAudioOffset ?? 0
-                try await Task.detached(priority: .utility) {
-                    try MeetingAudioFile.mix(microphone: mic, system: system, destination: mixed, offset: offset)
-                }.value
-                session.metadata.transcriptionAudioFilename = mixed.lastPathComponent
-                try archive.writeMetadata(for: session)
-            }
-            let audio = session.folderURL.appendingPathComponent(session.metadata.transcriptionAudioFilename ?? session.metadata.audioFilename)
+            let audio = session.folderURL.appendingPathComponent(session.metadata.transcriptionAudioFilename ?? session.metadata.recoveredAudioFilename ?? session.metadata.audioFilename)
             let text: String
             let engine = transcriptionEngine
             if let fileTranscriber {
@@ -731,6 +742,7 @@ final class DictationController: ObservableObject {
         isBusy = true
         NotificationCenter.default.post(name: Notification.Name("DICTATORCaptureWillStart"), object: nil)
         defer {
+            if !isRecording { meetingAfterStartup = false }
             if !isRecording && activityPhase == "starting" { activityPhase = "idle" }
             NotificationCenter.default.post(name: Notification.Name("DICTATORCaptureStartupDidFinish"), object: isRecording)
         }
@@ -1047,9 +1059,23 @@ final class DictationController: ObservableObject {
         refreshSessions()
     }
 
-    private func updateAudioActivity() {
+    func updateAudioActivity() {
         guard isRecording else { return }
         recordingElapsed = max(0, Date().timeIntervalSince(microphoneStartedAt ?? Date()))
+        if !streamingActive && !micRecorder.isRecording {
+            microphoneLevel = 0
+            microphoneStatus = "Aufnahme unterbrochen"
+            if var session = currentSession {
+                session.metadata.captureWarning = Self.captureWarning(
+                    session.metadata.captureWarning,
+                    adding: "Mikrofon-Aufnahme unerwartet unterbrochen. Bereits gespeichertes Audio bleibt erhalten."
+                )
+                currentSession = session
+            }
+            // Stop the global REC state and finalize retained tracks, not merely the meter.
+            stopRecording()
+            return
+        }
         microphoneLevel = streamingActive ? (liveAudioProgress.waveform.last ?? 0) : micRecorder.level
         microphoneStatus = (!streamingActive && !micRecorder.isRecording) ? "Not recording" : (microphoneLevel > 0.01 ? "Receiving audio" : "Quiet")
         if let capture = systemAudioCapture {
@@ -1057,6 +1083,12 @@ final class DictationController: ObservableObject {
             if let error = capture.captureError { systemAudioStatus = error }
             else if capture.hasReceivedAudio { systemAudioStatus = systemAudioLevel > 0.01 ? "Receiving audio" : "Quiet" }
         }
+    }
+
+    static func captureWarning(_ existing: String?, adding warning: String?) -> String? {
+        guard let warning, !warning.isEmpty else { return existing }
+        guard let existing, !existing.isEmpty else { return warning }
+        return existing == warning ? existing : existing + "\n" + warning
     }
 
     private func startMeeting(includeSystemAudio: Bool) async {
@@ -1183,8 +1215,7 @@ final class DictationController: ObservableObject {
             if let capture = systemAudioCapture {
                 await capture.stopToFile()
                 saved.metadata.systemAudioCaptured = capture.hasReceivedAudio
-                saved.metadata.captureWarning = capture.captureError
-                if !capture.hasReceivedAudio { saved.metadata.captureWarning = "No Mac audio received — microphone recording retained" }
+                saved.metadata.captureWarning = Self.captureWarning(saved.metadata.captureWarning, adding: capture.captureError)
                 if let started = microphoneStartedAt { saved.metadata.systemAudioOffset = capture.offset(relativeTo: started) }
             }
             await meetingSystemTask?.value
@@ -1192,25 +1223,15 @@ final class DictationController: ObservableObject {
             systemAudioCapture = nil
             microphoneStartedAt = nil
             if saved.metadata.meetingCaptureEnabled == true && saved.metadata.systemAudioCaptured != true {
-                saved.metadata.captureWarning = "Mac audio unavailable — microphone recording retained"
+                saved.metadata.captureWarning = Self.captureWarning(saved.metadata.captureWarning, adding: "Kein Mac-Audio gespeichert. Vorhandene Aufnahme bleibt erhalten.")
             }
             saved.metadata.durationSeconds = Self.audioDuration(saved.audioURL) ?? recordingElapsed
             saved.metadata.status = .saved
             do {
                 try archive?.writeMetadata(for: saved)
                 refreshSessions()
-                // Mix a separate derived file. Mic and Mac source tracks are never overwritten.
-                if saved.metadata.systemAudioCaptured == true, let name = saved.metadata.systemAudioFilename {
-                    let mic = saved.audioURL
-                    let system = saved.folderURL.appendingPathComponent(name)
-                    let mixed = mic.deletingPathExtension().appendingPathExtension("mixed.wav")
-                    let offset = saved.metadata.systemAudioOffset ?? 0
-                    try await Task.detached(priority: .utility) {
-                        try MeetingAudioFile.mix(microphone: mic, system: system, destination: mixed, offset: offset)
-                    }.value
-                    saved.metadata.transcriptionAudioFilename = mixed.lastPathComponent
-                    try archive?.writeMetadata(for: saved)
-                }
+                saved = try await prepareSavedAudio(for: saved)
+                try archive?.writeMetadata(for: saved)
                 currentSession = nil
                 meetingSession = false
                 await transcribeSavedSession(saved)

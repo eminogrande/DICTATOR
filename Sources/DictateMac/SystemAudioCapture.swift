@@ -177,9 +177,6 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
                 firstPTS = pts
                 firstSampleDate = clockDate.addingTimeInterval(pts - clockPTS)
             }
-            received = true
-            measuredLevel = min(1, sqrt(converted.reduce(Float(0)) { $0 + $1 * $1 } / Float(converted.count)))
-            lastAudioUptime = ProcessInfo.processInfo.systemUptime
             // Preserve gaps (device/screen changes) rather than compressing the timeline.
             let target = Int64(max(0, ((pts - (firstPTS ?? pts)) * sampleRate).rounded()))
             let gap = max(0, target - writtenFrames)
@@ -192,6 +189,10 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
                 samples.append(contentsOf: converted.dropFirst(skip))
             }
             writtenFrames += gap + Int64(converted.count - skip)
+            // Signal reception only after storage accepted this audio, never before a failed append.
+            received = true
+            measuredLevel = min(1, sqrt(converted.reduce(Float(0)) { $0 + $1 * $1 } / Float(converted.count)))
+            lastAudioUptime = ProcessInfo.processInfo.systemUptime
         } catch {
             accepting = false
             measuredLevel = 0

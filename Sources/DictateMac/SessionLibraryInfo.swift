@@ -20,7 +20,8 @@ struct SessionLibraryInfo: Sendable {
         wordCount = Self.countWords(transcript)
         // Prefer the completed mix; never play only the mic when the saved mix exists.
         let mixed = metadata.transcriptionAudioFilename.map { session.folderURL.appendingPathComponent($0) }
-        let candidates = [mixed, session.audioURL].compactMap { $0 }
+        let recovered = metadata.recoveredAudioFilename.map { session.folderURL.appendingPathComponent($0) }
+        let candidates = [mixed, recovered, session.audioURL].compactMap { $0 }
         let playable = candidates.first { url in
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
                   let bytes = attributes[.size] as? NSNumber else { return false }

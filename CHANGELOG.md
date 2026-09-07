@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.32
+
+### Rationale
+Close remaining microphone recovery and capture-health gaps without changing the minimal interface or replacing source audio.
+
+- Recover supported interrupted native microphone WAVs into validated derived copies. Original audio remains unchanged; the library and transcription use the recovered microphone when needed.
+- Unexpected microphone stoppage ends global REC and saves retained audio with a persistent capture warning, even if later transcription succeeds.
+- Mac-audio receipt is acknowledged only after storage accepts the samples; independent source warnings no longer overwrite each other.
+- Stop and Retry share recovery-before-mixing, including when a transcription model is unavailable. Failed Fn+R startup no longer leaves stale latch intent.
+
 ## 0.9.31
 
 ### Rationale

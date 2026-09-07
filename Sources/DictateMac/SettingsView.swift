@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// The recording library. Window sizing and presentation belong to AppDelegate.
 struct SettingsView: View {
     @ObservedObject var controller: DictationController
+    let openBrain: () -> Void
     @State private var selectedID: String?
     @State private var search = ""
     @State private var filter: LibraryFilter = .all
@@ -81,7 +82,7 @@ struct SettingsView: View {
         .onChange(of: controller.activeSessionID) { _, _ in selectActiveSessionIfNeeded() }
         .onChange(of: controller.isRecording) { _, _ in selectActiveSessionIfNeeded() }
         .sheet(isPresented: $showPreferences) {
-            RecordingPreferencesView(controller: controller)
+            RecordingPreferencesView(controller: controller, openBrain: openBrain)
         }
         .alert("Aufnahme umbenennen", isPresented: $showRename) {
             TextField("Titel", text: $titleDraft)

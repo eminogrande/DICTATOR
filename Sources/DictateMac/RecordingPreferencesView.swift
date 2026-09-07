@@ -3,6 +3,7 @@ import SwiftUI
 /// Technical controls stay out of the everyday recording workspace.
 struct RecordingPreferencesView: View {
     @ObservedObject var controller: DictationController
+    let openBrain: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var apiKeyDraft = ""
     @State private var keySaved = false
@@ -59,6 +60,20 @@ struct RecordingPreferencesView: View {
                             .disabled(controller.hasActiveWork)
                             .accessibilityIdentifier("retry-transcription-setup")
                     }
+                }
+                Section("Weitere Funktionen") {
+                    Button("Aufnahmeordner öffnen") { controller.openArchive() }
+                        .accessibilityIdentifier("open-recording-folder")
+                    Button("Wissensarchiv öffnen") {
+                        dismiss()
+                        openBrain()
+                    }
+                    .accessibilityIdentifier("open-knowledge-archive")
+                }
+                Section("Tastenkürzel") {
+                    LabeledContent("Diktieren", value: "Fn gedrückt halten")
+                    LabeledContent("Kurz zusammenfassen", value: "Fn + A")
+                    LabeledContent("Aufnahme starten / stoppen", value: "Fn + R")
                 }
                 Section("Text verbessern") {
                     Toggle("Namen mit KI korrigieren", isOn: $controller.aiEnhancementEnabled)

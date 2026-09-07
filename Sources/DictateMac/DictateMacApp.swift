@@ -34,9 +34,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptionHUD = TranscriptionHUDController(controller: dictationController)
         menuController = DictatorMenuController(
             controller: dictationController,
-            openBrain: { [weak self] in self?.showBrain() },
-            openArchive: { [weak self] in self?.dictationController.openArchive() },
-            openSettings: { [weak self] in self?.showSettings() }
+            openLibrary: { [weak self] in self?.showSettings() },
+            openPreferences: { [weak self] in self?.showPreferences() }
         )
         // Show a window at launch so the app visibly "opens".
         showSettings()
@@ -106,7 +105,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         if let settingsWindow {
             window = settingsWindow
         } else {
-            let hostingController = NSHostingController(rootView: SettingsView(controller: dictationController))
+            let hostingController = NSHostingController(rootView: SettingsView(
+                controller: dictationController, openBrain: { [weak self] in self?.showBrain() }
+            ))
             let created = NSWindow(contentViewController: hostingController)
             created.title = "DICTATOR"
             created.styleMask = [.titled, .closable, .miniaturizable, .resizable]

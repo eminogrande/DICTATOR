@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.31
+
+### Rationale
+The menu must be a quick remote control, not another transcript browser. Preserve the complete recording workspace while removing the oversized panel, nested recent-session menus and duplicate navigation.
+
+- Five direct idle actions: record, import, recordings, preferences and quit. Transcription cancellation remains available only while relevant.
+- Content-sized 56pt idle / 100pt recording status, real source levels and live elapsed time; no transcript dump or raw diagnostic panel.
+- Preferences opens preferences rather than the library. Archive folder, knowledge archive and shortcut guidance live in preferences; playback, retry, export and copy remain in the recording detail.
+- Existing recordings and capture/transcription lifecycle are unchanged. Installation must wait for active work to finish.
+
 ## 0.9.30
 
 ### Rationale

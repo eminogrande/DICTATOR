@@ -2,7 +2,9 @@
 
 ## Verified artifact
 
-`/tmp/DICTATOR-capture-0.9.32.app` passed the release build and deep/strict signature verification. Bundle identity remains `de.emin.DictateMac`; designated requirement is unchanged. Installed app was still 0.9.30 / 49 during verification. No active app was restarted.
+`/tmp/DICTATOR-capture-0.9.32.app` passed the release build and deep/strict signature verification. **0.9.32 / 51 is now installed at `/Applications/DICTATOR.app`**, after capture and transcription finished. The prior idle instance quit normally; no active recording was stopped. Readback verified exactly one process from the installed path, version, signature and SHA-256 `0022b3b3b83e7cf639bd670e5d8636055d1fbd30d3752015aa09f0381d9682a4`. Bundle identity remains `de.emin.DictateMac`; designated requirement is unchanged.
+
+The install-time manifest contained **87 protected files, all unchanged** after launch. The last session's completed transcript was nonempty. The actual installed library window was inspected: compact controls, saved-session metadata, idle player, readable transcript and the retained capture warning are visible. Screenshot: `/tmp/DICTATOR-0.9.32-installed.png`. No physical hotkey, audio playback or device-disconnect test was performed.
 
 ## Executed checks
 
@@ -26,6 +28,6 @@ The remaining finding is **partially addressed, not closed across all engines**:
 
 The earlier manifest contained 83 files, including derived `INDEX.md`. All **82 protected source audio/text/metadata files remained unchanged**, none missing. Only derived `INDEX.md` changed; `ArchiveStore.rebuildGraph()` regenerates it. Evidence: `/tmp/dictator-capture-source-verification.json`.
 
-The old 0.9.31 installer was paused without stopping the recording. Replacement installation must wait for both capture and processing to finish, verify pinned binaries, honor normal app termination refusal, preserve all sources and read back the exact installed app. No merge or release before user QA.
+The old 0.9.31 installer was paused without stopping the recording. Its replacement waited for capture and processing to finish, verified pinned binaries, used normal termination, and read back the installed app and all protected source hashes. No merge or release before user QA.
 
-Skipped opt-in checks: native menu rendering, actual installed-sidecar inference, and explicit saved-user-session retry. Physical Fn/capture/device-disconnect/newly-installed-app QA remains unperformed while the user's recording is active. Recovery deliberately rejects unsupported/ambiguous WAV layouts and never repairs an original in place.
+Skipped opt-in checks: native menu rendering, actual installed-sidecar inference, and explicit saved-user-session retry. Physical Fn/capture/device-disconnect/playback QA remains unperformed; the installed-window inspection is not capture proof. Recovery deliberately rejects unsupported/ambiguous WAV layouts and never repairs an original in place.

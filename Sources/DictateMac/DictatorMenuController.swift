@@ -35,19 +35,19 @@ final class DictatorMenuController: NSObject, NSMenuDelegate {
         activity.view = activityView
         menu.addItem(activity)
         menu.addItem(.separator())
-        recordItem = add("Record Meeting", action: #selector(toggleMeeting), key: "r")
+        recordItem = add("Aufnahme starten", action: #selector(toggleMeeting), key: "r")
         recordItem.keyEquivalentModifierMask = .function
-        fileItem = add("Transcribe Audio File…", action: #selector(transcribeFileAction), key: "o")
-        cancelItem = add("Cancel transcription", action: #selector(cancelTranscription))
-        let recent = add("Recent Sessions", action: nil)
+        fileItem = add("Datei importieren…", action: #selector(transcribeFileAction), key: "o")
+        cancelItem = add("Texterstellung anhalten", action: #selector(cancelTranscription))
+        let recent = add("Letzte Aufnahmen", action: nil)
         recent.submenu = recentMenu
-        _ = add("All Sessions…", action: #selector(openSettingsAction))
-        _ = add("Show Archive Folder", action: #selector(openArchiveAction))
+        _ = add("Alle Aufnahmen…", action: #selector(openSettingsAction))
+        _ = add("Aufnahmeordner öffnen", action: #selector(openArchiveAction))
         menu.addItem(.separator())
-        _ = add("Open Brain", action: #selector(openBrainAction))
-        _ = add("Settings…", action: #selector(openSettingsAction), key: ",")
+        _ = add("Wissensarchiv öffnen", action: #selector(openBrainAction))
+        _ = add("App öffnen", action: #selector(openSettingsAction), key: ",")
         menu.addItem(.separator())
-        _ = add("Quit DICTATOR", action: #selector(quitAction), key: "q")
+        _ = add("DICTATOR beenden", action: #selector(quitAction), key: "q")
 
         // A normal attached native menu: clicking REC never stops the recording.
         statusItem.menu = menu
@@ -85,17 +85,12 @@ final class DictatorMenuController: NSObject, NSMenuDelegate {
         let title = SessionActivityPresentation.title(controller, now: Date())
         let color = SessionActivityPresentation.color(controller.activityPhase)
         if let button = statusItem.button {
-            button.image = controller.activityPhase == "idle" ? DictatorAssets.menuIcon : nil
-            button.attributedTitle = NSAttributedString(string: controller.activityPhase == "idle" ? "" : title, attributes: [
-                .foregroundColor: color,
-                .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-            ])
-            button.contentTintColor = color
-            button.toolTip = "\(title) — \(SessionActivityPresentation.detail(controller)). Click for controls."
-            button.setAccessibilityLabel(title)
+            DictatorAssets.applyMenuBranding(to: button, phase: controller.activityPhase, activityTitle: title)
+            button.toolTip = "\(title) — \(SessionActivityPresentation.detail(controller)). Für Aktionen klicken."
+            button.setAccessibilityLabel("DICTATOR — " + title)
         }
         activityView.update(controller: controller, title: title, color: color)
-        recordItem.title = controller.isMeetingStarting ? "Cancel start" : (controller.isRecording ? "Stop Recording" : "Record Meeting")
+        recordItem.title = controller.isMeetingStarting ? "Start abbrechen" : (controller.isRecording ? "Aufnahme stoppen" : "Aufnahme starten")
         recordItem.isEnabled = controller.canToggleRecording
         fileItem.isEnabled = controller.canTranscribeFile
         cancelItem.isHidden = !controller.canCancelTranscription
@@ -108,16 +103,15 @@ final class DictatorMenuController: NSObject, NSMenuDelegate {
             let completed = session.metadata.status == .completed
             row.retry.isEnabled = controller.canRetryTranscription
             row.retry.isHidden = completed
-            row.retry.title = session.metadata.status == .saved ? "Transcribe" : "Retry transcription"
+            row.retry.title = session.metadata.status == .saved ? "Text erstellen" : "Erneut versuchen"
             row.copy.isHidden = !completed
-            row.open.isHidden = !completed
+            row.open.isHidden = false
         }
     }
 
     private func sessionTitle(_ session: DictationSession) -> String {
-        let headline = session.metadata.headline.flatMap { $0.isEmpty ? nil : $0 }
-            ?? session.metadata.startedAt.formatted(date: .abbreviated, time: .shortened)
-        return "\(session.metadata.startedAt.formatted(date: .abbreviated, time: .shortened)) · \(SessionActivityPresentation.status(session.metadata.status.rawValue)) · \(headline)"
+        let info = controller?.libraryDetails[session.metadata.sessionID]
+        return "\(info?.title ?? SessionLibraryInfo.title(for: session.metadata)) · \(info?.durationLabel ?? "—") · \(info?.wordCount ?? 0) Wörter"
     }
 
     private func rebuildRecentSessions() {
@@ -144,23 +138,23 @@ final class DictatorMenuController: NSObject, NSMenuDelegate {
                 child.representedObject = id
                 return child
             }
-            _ = action("Show audio", #selector(revealAudio(_:)))
+            _ = action("Im Finder zeigen", #selector(revealAudio(_:)))
             let completed = session.metadata.status == .completed
-            let retry = action(session.metadata.status == .saved ? "Transcribe" : "Retry transcription", #selector(retrySession(_:)))
+            let retry = action(session.metadata.status == .saved ? "Text erstellen" : "Erneut versuchen", #selector(retrySession(_:)))
             retry.isEnabled = controller.canRetryTranscription
             retry.isHidden = completed
-            let copy = action("Copy transcript", #selector(copySession(_:)))
-            let open = action("Open transcript", #selector(openSession(_:)))
+            let copy = action("Text kopieren", #selector(copySession(_:)))
+            let open = action("Aufnahme öffnen", #selector(openSession(_:)))
             copy.isHidden = !completed
-            open.isHidden = !completed
+            open.isHidden = false
             recentRows.append((id, item, state, retry, copy, open))
         }
         if recentRows.isEmpty {
-            let empty = recentMenu.addItem(withTitle: "No sessions yet", action: nil, keyEquivalent: "")
+            let empty = recentMenu.addItem(withTitle: "Noch keine Aufnahmen", action: nil, keyEquivalent: "")
             empty.isEnabled = false
         }
         recentMenu.addItem(.separator())
-        let all = recentMenu.addItem(withTitle: "All Sessions…", action: #selector(openSettingsAction), keyEquivalent: "")
+        let all = recentMenu.addItem(withTitle: "Alle Aufnahmen…", action: #selector(openSettingsAction), keyEquivalent: "")
         all.target = self
     }
 
@@ -176,13 +170,13 @@ final class DictatorMenuController: NSObject, NSMenuDelegate {
         if let id = sender.representedObject as? String { controller?.copySessionTranscript(id) }
     }
     @objc private func openSession(_ sender: NSMenuItem) {
-        if let id = sender.representedObject as? String { controller?.openTranscript(id) }
+        if let id = sender.representedObject as? String { controller?.selectedLibrarySessionID = id; openSettings() }
     }
     @objc private func transcribeFileAction() {
         guard controller?.canTranscribeFile == true else { return }
         let panel = NSOpenPanel()
-        panel.title = "Transcribe Audio File"
-        panel.prompt = "Transcribe"
+        panel.title = "Audio oder Video importieren"
+        panel.prompt = "Text erstellen"
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [.audio, .movie, .audiovisualContent]
@@ -241,8 +235,8 @@ private final class MenuSessionActivityView: NSView {
         heading.textColor = color
         let recording = controller.isRecording
         for view in [mic, mac, micMeter, macMeter] as [NSView] { view.isHidden = !recording }
-        mic.stringValue = "Mic · \(controller.microphoneStatus)"
-        mac.stringValue = "Mac · \(controller.systemAudioStatus)"
+        mic.stringValue = "Mikrofon · \(SessionActivityPresentation.sourceStatus(controller.microphoneStatus))"
+        mac.stringValue = "Mac-Audio · \(SessionActivityPresentation.sourceStatus(controller.systemAudioStatus))"
         micMeter.doubleValue = SessionActivityPresentation.level(controller.microphoneLevel)
         macMeter.doubleValue = SessionActivityPresentation.level(controller.systemAudioLevel)
         progress.isHidden = controller.activityPhase != "transcribing"

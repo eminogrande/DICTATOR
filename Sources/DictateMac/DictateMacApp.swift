@@ -40,6 +40,23 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         // Show a window at launch so the app visibly "opens".
         showSettings()
+        if let menu = NSApplication.shared.mainMenu { wirePreferencesCommand(menu) }
+    }
+
+    private func wirePreferencesCommand(_ menu: NSMenu) {
+        for item in menu.items {
+            if item.keyEquivalent == "," {
+                item.target = self
+                item.action = #selector(showPreferences)
+                item.title = "Einstellungen…"
+            }
+            if let submenu = item.submenu { wirePreferencesCommand(submenu) }
+        }
+    }
+
+    @objc private func showPreferences() {
+        showSettings()
+        NotificationCenter.default.post(name: Notification.Name("DICTATORShowPreferences"), object: nil)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -91,9 +108,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             let hostingController = NSHostingController(rootView: SettingsView(controller: dictationController))
             let created = NSWindow(contentViewController: hostingController)
-            created.title = "DICTATOR Settings"
-            created.styleMask = [.titled, .closable, .miniaturizable]
-            created.setContentSize(NSSize(width: 540, height: 640))
+            created.title = "DICTATOR"
+            created.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            created.collectionBehavior.insert(.fullScreenPrimary)
+            created.titlebarAppearsTransparent = true
+            let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            created.setContentSize(NSSize(width: min(1180, screen.width - 60), height: min(780, screen.height - 60)))
+            created.contentMinSize = NSSize(width: 900, height: 560)
+            created.setFrameAutosaveName("DICTATORLibraryWindow")
             created.isReleasedWhenClosed = false
             created.center()
             settingsWindow = created

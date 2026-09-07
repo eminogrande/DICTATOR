@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.30
+
+### Rationale
+Make DICTATOR identifiable and readable on either menu-bar material instead of forcing the application’s label color onto a dark menu bar.
+
+- Persistent compact DICTATOR wordmark plus a small native symbol; native title contrast, no forced black foreground or content tint.
+- REC/TXT elapsed text appears only during active work; colored status symbols retain recording/result visibility without a long idle label.
+
+## 0.9.29
+
+### Rationale
+Turn the oversized diagnostic Settings window into a compact, nontechnical recording and transcript app without weakening audio-first capture.
+
+- Resizable, fullscreen-capable DICTATOR workspace with searchable library, selected transcript reader, separate preferences and compact system typography.
+- Stable editable recording titles; date/time, actual audio duration, word count and file size. Legacy facts are read without rewriting recordings or fabricating summaries.
+- Integrated audio player with seek/time, copy/export and retry. Playback stops synchronously before capture; no automatic playback.
+- Compact German statuses, real source meters and elapsed progress remain visible while browsing other recordings. Original audio/transcripts and archive IDs remain intact.
+
 ## 0.9.28 — 2026-09-07
 
 ### Rationale

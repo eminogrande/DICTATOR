@@ -179,89 +179,154 @@ enum WhisperCppService {
 /// Long-running whisper.cpp transcription with live progress + cancellation.
 final class WhisperCppFileTask: @unchecked Sendable {
     struct Snapshot: Sendable {
-        let fraction: Double      // 0...1
+        let fraction: Double      // 0 = indeterminate with VAD; 1 = verified completion
         let text: String          // full transcript so far
+        var isIndeterminate: Bool { fraction == 0 }
     }
 
     private let process = Process()
-    private let stdoutPipe = Pipe()
-    private let stderrPipe = Pipe()
-    private let duration: Double
+    private let directory: URL
+    private let output: URL
     private let lock = NSLock()
-    private var lines: [String] = []
     private var cancelled = false
+    private var started = false
 
-    init(wavURL: URL) throws {
-        let file = try AVAudioFile(forReading: wavURL)
-        duration = Double(file.length) / file.fileFormat.sampleRate
-        process.executableURL = TranscriptionEngine.wcppURL
-        process.arguments = WhisperCppService.arguments(wavURL: wavURL)
+    // Executable/arguments injection is only for isolated sidecar contract tests.
+    init(wavURL: URL, executableURL: URL = TranscriptionEngine.wcppURL,
+         arguments: [String]? = nil) throws {
+        _ = try AVAudioFile(forReading: wavURL) // Header inspection, never load the full recording.
+        directory = try EngineValidation.temporaryOutputDirectory()
+        output = directory.appendingPathComponent("transcript")
+        process.executableURL = executableURL
+        process.arguments = (arguments ?? WhisperCppService.arguments(wavURL: wavURL))
+            + ["-otxt", "-of", output.path]
+        // Required: installed binaries retain /tmp build rpaths. Without this,
+        // dyld aborts with SIGABRT (6) before inference even starts.
         process.environment = TranscriptionEngine.localEnvironment
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
     }
 
+    deinit { try? FileManager.default.removeItem(at: directory) }
+
     func cancel() {
-        lock.lock(); cancelled = true; lock.unlock()
-        process.terminate()
+        lock.lock()
+        cancelled = true
+        if process.isRunning { process.terminate() }
+        lock.unlock()
+        // A decoder may ignore SIGTERM while GPU work is in flight. Only signal
+        // this still-running owned child, never an unrelated/reused PID.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            if self.process.isRunning { kill(self.process.processIdentifier, SIGKILL) }
+        }
     }
 
     private var isCancelled: Bool {
         lock.lock(); defer { lock.unlock() }; return cancelled
     }
 
-    /// Runs whisper.cpp, emitting progress snapshots as segment lines stream in.
-    /// Returns the joined transcript, or throws on error/cancellation.
-    func run(onSnapshot: @escaping @Sendable (Snapshot) -> Void) async throws -> String {
-        // Drain stderr so the process never blocks on a full pipe.
-        let stderrDrain = Task.detached(priority: .utility) {
-            _ = self.stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        }
+    private func claimRun() throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !started else { throw EngineValidationError("Transcription task already started.") }
+        started = true
+    }
+
+    private func launch() throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !cancelled else { throw WhisperCppError.cancelled }
         try process.run()
+    }
 
+    /// Timestamped stdout is preview only. The authoritative result is -otxt.
+    /// Spool both streams to private files: no pipe deadlock, including launch
+    /// failure/cancellation, and no unbounded in-memory audio or diagnostic buffer.
+    func run(onSnapshot: @escaping @Sendable (Snapshot) -> Void) async throws -> String {
+        try await withTaskCancellationHandler {
+            try await Task.detached(priority: .utility) {
+                try self.runBlocking(onSnapshot: onSnapshot)
+            }.value
+        } onCancel: {
+            self.cancel()
+        }
+    }
+
+    private func runBlocking(onSnapshot: @escaping @Sendable (Snapshot) -> Void) throws -> String {
+        try claimRun()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stdoutURL = directory.appendingPathComponent("stdout")
+        let stderrURL = directory.appendingPathComponent("stderr")
+        for url in [stdoutURL, stderrURL] {
+            guard FileManager.default.createFile(atPath: url.path, contents: nil,
+                                                 attributes: [.posixPermissions: 0o600]) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        let stdout = try FileHandle(forWritingTo: stdoutURL)
+        defer { try? stdout.close() }
+        let stderr = try FileHandle(forWritingTo: stderrURL)
+        defer { try? stderr.close() }
+        let reader = try FileHandle(forReadingFrom: stdoutURL)
+        defer { try? reader.close() }
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try launch()
+        // Even a local read/parse failure must reap the child before deleting its output.
+        defer {
+            if process.isRunning { cancel() }
+            process.waitUntilExit()
+        }
+        var pending = Data()
         var text = ""
-        for try await line in stdoutPipe.fileHandleForReading.bytes.lines {
-            guard !isCancelled else {
-                process.terminate()
-                throw WhisperCppError.cancelled
+        func accept(_ line: Data) {
+            guard let segment = Self.segment(String(decoding: line, as: UTF8.self)) else { return }
+            if !segment.text.isEmpty {
+                if !text.isEmpty { text += " " }
+                text += segment.text
             }
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("[") else { continue }
-            // "[00:00:01.980 --> 00:00:03.140]   text"
-            guard let close = trimmed.firstIndex(of: "]") else { continue }
-            let tsRange = trimmed.index(after: trimmed.startIndex)..<close
-            let ts = String(trimmed[tsRange])
-            let parts = ts.components(separatedBy: "-->")
-            let segmentText: String
-            if let bodyStart = trimmed.index(close, offsetBy: 1, limitedBy: trimmed.endIndex) {
-                segmentText = String(trimmed[bodyStart...]).trimmingCharacters(in: .whitespaces)
-            } else {
-                segmentText = ""
-            }
-            if parts.count == 2, let end = Self.timestamp(parts[1]) {
-                let fraction = duration > 0 ? min(1.0, end / duration) : 0
-                lock.lock()
-                if !segmentText.isEmpty { lines.append(segmentText) }
-                text = lines.joined(separator: " ")
-                lock.unlock()
-                onSnapshot(Snapshot(fraction: fraction, text: text))
-            } else if !segmentText.isEmpty {
-                lock.lock(); lines.append(segmentText); text = lines.joined(separator: " "); lock.unlock()
-                onSnapshot(Snapshot(fraction: 0, text: text))
-            }
+            // VAD remaps timestamps and parallel decoding can emit out of order.
+            // End/duration is NOT reliable completion progress; zero means unknown.
+            onSnapshot(Snapshot(fraction: 0, text: text))
         }
-
+        func drainChunk() throws -> Bool {
+            guard let data = try reader.read(upToCount: 64 * 1024), !data.isEmpty else { return false }
+            pending.append(data)
+            while let newline = pending.firstIndex(of: 10) {
+                accept(Data(pending[..<newline]))
+                pending.removeSubrange(...newline)
+            }
+            return true
+        }
+        onSnapshot(Snapshot(fraction: 0, text: ""))
+        while process.isRunning {
+            if !(try drainChunk()) { Thread.sleep(forTimeInterval: 0.1) }
+        }
         process.waitUntilExit()
-        _ = await stderrDrain.value
-        if isCancelled {
-            throw WhisperCppError.cancelled
-        }
+        while try drainChunk() {}
+        if !pending.isEmpty { accept(pending) }
+        if isCancelled { throw WhisperCppError.cancelled }
         guard process.terminationStatus == 0 else {
-            throw WhisperCppError.processFailed(exit: process.terminationStatus)
+            throw WhisperCppError.processFailed(
+                exit: process.terminationStatus,
+                stderr: String(decoding: try Data(contentsOf: stderrURL), as: UTF8.self),
+                signalled: process.terminationReason == .uncaughtSignal)
         }
-        lock.lock(); let final = lines.joined(separator: " "); lock.unlock()
+        guard FileManager.default.fileExists(atPath: output.appendingPathExtension("txt").path) else {
+            throw WhisperCppError.noOutput
+        }
+        let final = TranscriptCleaner.clean(try String(contentsOf: output.appendingPathExtension("txt"), encoding: .utf8))
         guard !final.isEmpty else { throw WhisperCppError.noOutput }
+        if isCancelled { throw WhisperCppError.cancelled }
+        onSnapshot(Snapshot(fraction: 1, text: final))
         return final
+    }
+
+    static func segment(_ line: String) -> (end: Double, text: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("["), let close = trimmed.firstIndex(of: "]") else { return nil }
+        let parts = trimmed[trimmed.index(after: trimmed.startIndex)..<close].components(separatedBy: "-->")
+        guard parts.count == 2, timestamp(parts[0]) != nil, let end = timestamp(parts[1]),
+              end.isFinite, end >= 0 else { return nil }
+        return (end, String(trimmed[trimmed.index(after: close)...]).trimmingCharacters(in: .whitespaces))
     }
 
     private static func timestamp(_ raw: String) -> Double? {
@@ -278,14 +343,15 @@ final class WhisperCppFileTask: @unchecked Sendable {
     }
 }
 
-private enum WhisperCppError: LocalizedError {
-    case processFailed(exit: Int32)
+enum WhisperCppError: LocalizedError {
+    case processFailed(exit: Int32, stderr: String, signalled: Bool)
     case noOutput
     case cancelled
 
     var errorDescription: String? {
         switch self {
-        case .processFailed(let exit): "whisper.cpp exited with code \(exit)."
+        case .processFailed(let exit, let stderr, let signalled):
+            "whisper.cpp \(signalled ? "terminated by signal" : "exited with code") \(exit).\n\(stderr)"
         case .noOutput: "whisper.cpp produced no transcript."
         case .cancelled: "Transcription cancelled."
         }

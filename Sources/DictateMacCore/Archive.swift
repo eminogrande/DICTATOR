@@ -92,6 +92,7 @@ public enum GraphBrainText {
 
 public enum DictationStatus: String, Codable, Sendable {
     case recording
+    case saved
     case transcribing
     case completed
     case failed
@@ -139,6 +140,11 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
     public var autoPasteEnabled: Bool?
     public var meetingCaptureEnabled: Bool?
     public var systemAudioCaptured: Bool?
+    public var durationSeconds: Double?
+    public var systemAudioFilename: String?
+    public var systemAudioOffset: Double?
+    public var captureWarning: String?
+    public var transcriptionAudioFilename: String?
     public var rawTranscriptFilename: String?
     public var enhancementModel: String?
     public var enhancementEvidencePaths: [String]?
@@ -422,6 +428,56 @@ public struct ArchiveStore: Sendable {
                 guard let text = try? String(contentsOf: entry.textURL, encoding: .utf8), !text.isEmpty else { return nil }
                 return (id: entry.id, headline: entry.headline, text: text, date: entry.date)
             }
+    }
+
+    /// Every take, not only successes. Source paths stay stable across retries.
+    public func sessions() -> [DictationSession] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil)) ?? []
+        return files.compactMap { file -> DictationSession? in
+            guard file.pathExtension == "json", file.lastPathComponent != "graph.json",
+                  let metadata = try? MetadataCodec.decode(Data(contentsOf: file)) else { return nil }
+            return DictationSession(folderURL: rootURL,
+                audioURL: rootURL.appendingPathComponent(metadata.audioFilename),
+                transcriptURL: rootURL.appendingPathComponent(metadata.transcriptFilename),
+                metadataURL: file, metadata: metadata)
+        }.sorted { $0.metadata.startedAt > $1.metadata.startedAt }
+    }
+
+    /// Only at startup after exclusive app ownership is established. Never delete audio.
+    public func recoverInterruptedSessions() throws {
+        for var session in sessions() where session.metadata.status == .recording || session.metadata.status == .transcribing {
+            session.metadata.status = .saved
+            session.metadata.error = "Interrupted — audio retained. Transcribe when ready."
+            try writeMetadata(for: session)
+        }
+    }
+
+    /// Finish a retained session without renaming or rewriting any source audio.
+    public func saveTranscript(_ transcript: String, model: String, for original: DictationSession) throws -> DictationSession {
+        guard !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ArchiveError.verificationFailed }
+        var session = original
+        // Retry may follow a crash after final TXT was written but before metadata.
+        // Preserve that result (including user edits) before replacing it.
+        if let previous = try? Data(contentsOf: session.transcriptURL), !previous.isEmpty,
+           previous != Data(transcript.utf8) {
+            let backup = session.transcriptURL.deletingPathExtension()
+                .appendingPathExtension("previous-" + UUID().uuidString + ".txt")
+            try previous.write(to: backup, options: .withoutOverwriting)
+        }
+        try writeTranscript(transcript, for: session)
+        let analysis = GraphBrainText.analyze(transcript)
+        session.metadata.headline = analysis.headline
+        session.metadata.summary = analysis.summary
+        session.metadata.keywords = analysis.keywords
+        session.metadata.model = model
+        session.metadata.status = .completed
+        session.metadata.completedAt = Date()
+        session.metadata.error = nil
+        try writeMetadata(for: session)
+        // The derived graph cannot downgrade a durable completed transcript.
+        do { try rebuildGraph() }
+        catch { NSLog("DICTATOR derived graph rebuild failed: %@", error.localizedDescription) }
+        return session
     }
 
     public func writeMetadata(for session: DictationSession) throws {

@@ -11,6 +11,27 @@ final class DictationController: ObservableObject {
     @Published private(set) var readiness = TranscriptionReadiness(engineID: TranscriptionEngine.whisperCpp.rawValue)
     @Published private(set) var blockedHUDVisible = false
     @Published private(set) var latestTranscript = ""
+    @Published private(set) var sessions: [DictationSession] = []
+    @Published private(set) var activityPhase = "idle"
+    @Published private(set) var activityStartedAt: Date?
+    @Published private(set) var recordingElapsed: TimeInterval = 0
+    @Published private(set) var microphoneLevel: Float = 0
+    @Published private(set) var systemAudioLevel: Float = 0
+    @Published private(set) var microphoneStatus = "Off"
+    @Published private(set) var systemAudioStatus = "Off"
+    @Published private(set) var activeSessionID: String?
+    @Published private(set) var canCancelTranscription = false
+    private var activityTimer: Timer?
+    private var meetingSession = false
+    private var meetingSystemTask: Task<Void, Never>?
+    private var fileTranscriber: ((URL) async throws -> String)?
+    private var pendingFnStart: Task<Void, Never>?
+    private var meetingAfterStartup = false
+    private var meetingAfterTranscription = false
+    @Published private(set) var isMeetingStarting = false
+    private var meetingStartupCancelled = false
+    private var meetingPermission: (() async -> Bool)?
+
     /// True while the current take is an Fn+A compress take (result = minimal numbered list).
     @Published private(set) var compressMode = false
     @Published private(set) var transcriptionHUDTitle = ""
@@ -84,7 +105,9 @@ final class DictationController: ObservableObject {
         readiness.permitsRecording(engineID: transcriptionEngine.rawValue, busy: false, recording: false)
     }
     var hasActiveWork: Bool { isRecording || operationInProgress }
-    var canTranscribeFile: Bool { modelReady && !hasActiveWork }
+    var canTranscribeFile: Bool { !hasActiveWork }
+    var canStartDictation: Bool { modelReady && !hasActiveWork }
+    var canRetryTranscription: Bool { (modelReady || fileTranscriber != nil) && !hasActiveWork }
     var readinessStatus: String { readiness.status(engineName: transcriptionEngine.displayName) }
 
     private var operationInProgress = false
@@ -103,11 +126,11 @@ final class DictationController: ObservableObject {
     @Published var isLatchedRecordingPublished: Bool = false
 
     var recordButtonTitle: String {
-        isRecording ? "Stop" : "Record"
+        isMeetingStarting ? "Cancel start" : (isRecording ? "Stop" : "Record")
     }
 
     var canToggleRecording: Bool {
-        isRecording || (modelReady && !operationInProgress)
+        isRecording || isMeetingStarting || !operationInProgress || canCancelTranscription
     }
 
     var accessibilityButtonTitle: String {
@@ -123,14 +146,20 @@ final class DictationController: ObservableObject {
     }
 
     init(startServices: Bool = true, defaults: UserDefaults = .standard,
-         readinessValidator: ((TranscriptionEngine) async throws -> Void)? = nil) {
+         readinessValidator: ((TranscriptionEngine) async throws -> Void)? = nil,
+         archiveStore: ArchiveStore? = nil,
+         fileTranscriber: ((URL) async throws -> String)? = nil,
+         meetingPermission: (() async -> Bool)? = nil) {
+        self.meetingPermission = meetingPermission
+        self.archive = archiveStore
+        self.fileTranscriber = fileTranscriber
         self.settings = defaults
         self.readinessValidator = readinessValidator
         autoPasteEnabled = defaults.object(forKey: Self.autoPasteDefaultsKey) == nil
             ? true
             : defaults.bool(forKey: Self.autoPasteDefaultsKey)
         aiEnhancementEnabled = defaults.bool(forKey: Self.aiEnhancementDefaultsKey)
-        meetingCaptureEnabled = defaults.bool(forKey: Self.meetingCaptureDefaultsKey)
+        meetingCaptureEnabled = defaults.object(forKey: Self.meetingCaptureDefaultsKey) == nil ? true : defaults.bool(forKey: Self.meetingCaptureDefaultsKey)
         let storedModel = defaults.string(forKey: Self.openRouterModelDefaultsKey)
         openRouterModel = storedModel == "deepseek/deepseek-v4-flash-latest"
             ? "~deepseek/deepseek-v4-flash-latest"
@@ -141,11 +170,17 @@ final class DictationController: ObservableObject {
         }
         readiness = TranscriptionReadiness(engineID: transcriptionEngine.rawValue)
         statusText = readinessStatus
-        guard startServices else { isBusy = false; return }
+        guard startServices else { isBusy = false; refreshSessions(); return }
         hasOpenRouterAPIKey = ((try? keyStore.read()) ?? nil) != nil
 
         do {
             archive = try ArchiveStore()
+            try archive?.recoverInterruptedSessions()
+            refreshSessions()
+            if let latest = sessions.first, latest.metadata.status != .completed {
+                activityPhase = latest.metadata.status == .failed ? "failed" : "saved"
+                statusText = latest.metadata.status == .failed ? "Transcription failed — audio saved" : "Audio saved — ready to transcribe"
+            }
         } catch {
             statusText = "Archive unavailable: \(error.localizedDescription)"
             isBusy = false
@@ -155,6 +190,11 @@ final class DictationController: ObservableObject {
         isBusy = false
         refreshReadiness()
         preparePreview()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateAudioActivity() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        activityTimer = timer
 
         fnKeyMonitor = FnKeyMonitor { [weak self] action in
             self?.handleFnAction(action)
@@ -166,6 +206,12 @@ final class DictationController: ObservableObject {
     }
 
     func toggleRecording() {
+        if isMeetingStarting { stopRecording(); return }
+        if canCancelTranscription && !isRecording {
+            meetingAfterTranscription = true
+            cancelFileTranscription()
+            return
+        }
         if isRecording {
             stopRecording()
         } else {
@@ -182,109 +228,195 @@ final class DictationController: ObservableObject {
         NSWorkspace.shared.open(archive.rootURL)
     }
 
-    /// Transcribe a user-picked audio file: whisper.cpp full-file pass → paste + archive.
+    /// Import first, then transcribe. A missing model must not hide the saved audio.
     func transcribeAudioFile(_ url: URL) {
-        guard !isRecording, !operationInProgress else {
-            statusText = "Finish the current take first"
-            return
-        }
-        guard ensureReady() else { return }
-        let engine = transcriptionEngine
+        guard !hasActiveWork, let archive else { return }
         operationInProgress = true
         isBusy = true
-        isTranscribingFile = true
-        fileProgress = 0
-        filePartialText = ""
-        statusText = "Converting audio…"
-
+        activityPhase = "saving"
+        activityStartedAt = Date()
+        statusText = "Saving audio…"
         Task {
-            defer {
-                isBusy = false
-                operationInProgress = false
-                isTranscribingFile = false
-                activeFileTask = nil
-            }
-            guard let archive else {
-                statusText = "Archive unavailable"
-                return
-            }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            var imported: DictationSession?
             do {
                 var session = try archive.startSession(sourceApplication: "Audio File")
-                session.metadata.status = .transcribing
-                try archive.writeMetadata(for: session)
-
-                // Normalize any input (wav/mp3/m4a/mp4/mov/flac/ogg/aiff) to 16 kHz mono WAV.
+                imported = session
+                activeSessionID = session.metadata.sessionID
+                refreshSessions()
                 let destination = session.audioURL
                 try await Task.detached(priority: .utility) {
                     try Self.convertToWav16kMono(url, to: destination)
                 }.value
-
-                let raw: String
-                let modelName: String
-                switch engine {
-                case .qwen3ASR:
-                    let qwen = try await QwenASRService.transcribe(wavURL: session.audioURL)
-                    raw = qwen.text
-                    modelName = qwen.model
-                case .whisperKit:
-                    raw = try await transcriber.transcribe(wavURL: session.audioURL)
-                    modelName = "WhisperKit large-v3-turbo"
-                case .whisperCpp:
-                    let task = try WhisperCppFileTask(wavURL: session.audioURL)
-                    activeFileTask = task
-                    statusText = "Transcribing…"
-                    raw = try await task.run { [weak self] snapshot in
-                        Task { @MainActor in
-                            self?.fileProgress = snapshot.fraction
-                            self?.filePartialText = snapshot.text
-                            self?.statusText = Self.progressLabel(snapshot.fraction)
-                        }
-                    }
-                    modelName = "whisper.cpp large-v3-turbo"
-                }
-                let transcript = TranscriptCleaner.clean(raw)
-                guard !transcript.isEmpty else { throw DictationError.emptyTranscript }
-                session.metadata.model = modelName
-
-                session = try archive.nameAndWriteTranscript(transcript, for: session)
-                currentSession = session
-                latestTranscript = transcript
-                statusText = "Delivering final transcript"
-                let deliveryTarget = targetTracker.targetApplication()
-                let delivery = await TranscriptDeliveryService.deliver(
-                    transcript,
-                    to: deliveryTarget,
-                    mode: AutoPastePolicy.deliveryMode(isEnabled: autoPasteEnabled)
-                )
-                session.metadata.status = .completed
-                session.metadata.completedAt = Date()
-                session.metadata.delivery = delivery
-                session.metadata.autoPasteEnabled = autoPasteEnabled
-                try archive.complete(session)
-                currentSession = nil
-                switch delivery {
-                case .accessibilityInserted, .pasteShortcutPosted:
-                    statusText = "Audio file transcribed"
-                case .accessibilityDenied, .targetUnavailable:
-                    statusText = "Copied — enable Accessibility for DICTATOR"
-                case .clipboardOnly:
-                    statusText = "Copied — Auto-Paste is off"
-                }
+                session.metadata.status = .saved
+                session.metadata.durationSeconds = Self.audioDuration(destination)
+                try archive.writeMetadata(for: session)
+                refreshSessions()
+                await transcribeSavedSession(session)
             } catch {
-                statusText = "Audio file failed: \(error.localizedDescription)"
+                if let imported { persistFailure(imported, error: error) }
+                else { activityPhase = "failed"; statusText = error.localizedDescription }
             }
+            finishBackgroundWork()
         }
     }
 
-    /// Cancel the in-flight file transcription (kills whisper.cpp).
     func cancelFileTranscription() {
+        guard canCancelTranscription else { return }
         activeFileTask?.cancel()
-        statusText = "Cancelling…"
+        statusText = "Stopping transcription — audio retained"
     }
 
-    private static func progressLabel(_ fraction: Double) -> String {
-        let pct = Int((fraction * 100).rounded())
-        return "Transcribing… \(pct)%"
+    func refreshSessions() { sessions = archive?.sessions() ?? [] }
+
+    func retryTranscription(_ id: String) {
+        guard !hasActiveWork, let session = archive?.sessions().first(where: { $0.metadata.sessionID == id }) else { return }
+        guard session.metadata.status != .completed else { return }
+        operationInProgress = true
+        isBusy = true
+        activeSessionID = id
+        Task {
+            await transcribeSavedSession(session)
+            finishBackgroundWork()
+        }
+    }
+
+    func revealAudioInFolder(_ id: String) {
+        guard let session = sessions.first(where: { $0.metadata.sessionID == id }) else { return }
+        var files = [session.audioURL]
+        if let name = session.metadata.systemAudioFilename { files.append(session.folderURL.appendingPathComponent(name)) }
+        NSWorkspace.shared.activateFileViewerSelecting(files.filter { FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    func openTranscript(_ id: String) {
+        guard let session = sessions.first(where: { $0.metadata.sessionID == id }) else { return }
+        NSWorkspace.shared.open(session.transcriptURL)
+    }
+
+    func copySessionTranscript(_ id: String) {
+        guard let session = sessions.first(where: { $0.metadata.sessionID == id }),
+              let text = try? String(contentsOf: session.transcriptURL, encoding: .utf8), !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func transcribeSavedSession(_ original: DictationSession) async {
+        guard let archive else { return }
+        var session = original
+        activeSessionID = session.metadata.sessionID
+        activityStartedAt = Date()
+        fileProgress = 0
+        filePartialText = ""
+        do {
+            // Meetings/retries can outlive readiness startup. Never wait for a stuck preview.
+            if fileTranscriber == nil && !modelReady {
+                session.metadata.status = .saved
+                session.metadata.error = nil
+                try archive.writeMetadata(for: session)
+                activityPhase = "saved"
+                statusText = "Audio saved — ready to transcribe later"
+                refreshSessions()
+                return
+            }
+            session.metadata.status = .transcribing
+            session.metadata.error = nil
+            try archive.writeMetadata(for: session)
+            refreshSessions()
+            activityPhase = "transcribing"
+            isTranscribingFile = true
+            statusText = "Transcribing locally, please wait…"
+            // Interrupted/mix-failed recordings still retain both source tracks for retry.
+            if session.metadata.transcriptionAudioFilename == nil,
+               let name = session.metadata.systemAudioFilename,
+               FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(name).path),
+               (Self.audioDuration(session.folderURL.appendingPathComponent(name)) ?? 0) > 0 {
+                let mic = session.audioURL
+                let system = session.folderURL.appendingPathComponent(name)
+                let mixed = mic.deletingPathExtension().appendingPathExtension("mixed-" + UUID().uuidString + ".wav")
+                let offset = session.metadata.systemAudioOffset ?? 0
+                try await Task.detached(priority: .utility) {
+                    try MeetingAudioFile.mix(microphone: mic, system: system, destination: mixed, offset: offset)
+                }.value
+                session.metadata.transcriptionAudioFilename = mixed.lastPathComponent
+                try archive.writeMetadata(for: session)
+            }
+            let audio = session.folderURL.appendingPathComponent(session.metadata.transcriptionAudioFilename ?? session.metadata.audioFilename)
+            let text: String
+            let engine = transcriptionEngine
+            if let fileTranscriber {
+                text = try await fileTranscriber(audio)
+            } else {
+                switch engine {
+                case .whisperCpp:
+                    let task = try WhisperCppFileTask(wavURL: audio)
+                    activeFileTask = task
+                    canCancelTranscription = true
+                    text = try await task.run { [weak self] snapshot in
+                        Task { @MainActor in
+                            guard self?.activeSessionID == original.metadata.sessionID,
+                                  self?.activityPhase == "transcribing" else { return }
+                            self?.fileProgress = snapshot.fraction
+                            self?.filePartialText = snapshot.text
+                        }
+                    }
+                case .qwen3ASR:
+                    text = try await QwenASRService.transcribe(wavURL: audio).text
+                case .whisperKit:
+                    text = try await transcriber.transcribe(wavURL: audio)
+                }
+            }
+            let transcript = TranscriptCleaner.clean(text)
+            guard !transcript.isEmpty else { throw DictationError.emptyTranscript }
+            _ = try archive.saveTranscript(transcript, model: engine.rawValue, for: session)
+            latestTranscript = transcript
+            filePartialText = transcript
+            fileProgress = 1
+            activityPhase = "completed"
+            statusText = "Transcript ready"
+            // Background meeting/import/retry NEVER pastes into an unrelated application.
+        } catch {
+            if let error = error as? WhisperCppError, case .cancelled = error {
+                session.metadata.status = .saved
+                session.metadata.error = "Transcription stopped — audio retained"
+                do { try archive.writeMetadata(for: session) }
+                catch { statusText = "Could not save session status: " + error.localizedDescription }
+                activityPhase = "saved"
+                statusText = "Audio saved — transcription stopped"
+            } else { persistFailure(session, error: error) }
+        }
+        refreshSessions()
+    }
+
+    private func persistFailure(_ original: DictationSession, error: Error) {
+        var session = original
+        session.metadata.status = .failed
+        session.metadata.error = error.localizedDescription
+        session.metadata.completedAt = Date()
+        activityPhase = "failed"
+        statusText = "Failed — audio retained. " + error.localizedDescription
+        do { try archive?.writeMetadata(for: session) }
+        catch { statusText += " Status save failed: " + error.localizedDescription }
+        refreshSessions()
+    }
+
+    private func finishBackgroundWork() {
+        isBusy = false
+        operationInProgress = false
+        isTranscribingFile = false
+        activeFileTask = nil
+        canCancelTranscription = false
+        activeSessionID = nil
+        refreshSessions()
+        if meetingAfterTranscription {
+            meetingAfterTranscription = false
+            Task { await startMeeting(includeSystemAudio: meetingCaptureEnabled) }
+        }
+    }
+
+    nonisolated private static func audioDuration(_ url: URL) -> TimeInterval? {
+        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+        return Double(file.length) / file.fileFormat.sampleRate
     }
 
     /// Recent takes for the menu bar list: headline + time, text attached by the menu.
@@ -385,7 +517,7 @@ final class DictationController: ObservableObject {
     func refreshReadiness() {
         let engine = transcriptionEngine
         let token = readiness.begin(engineID: engine.rawValue)
-        if !hasActiveWork { statusText = readinessStatus }
+        if !hasActiveWork && activityPhase == "idle" { statusText = readinessStatus }
         // A stuck optional/Built-in load must not delay a newly selected sidecar.
         // Generation tokens reject superseded probe results.
         readinessTask = Task { [weak self] in
@@ -394,7 +526,7 @@ final class DictationController: ObservableObject {
                 try? await Task.sleep(nanoseconds: 180_000_000_000)
                 guard !Task.isCancelled, let self else { return }
                 self.readiness.complete(token, error: "Loading timed out. Retry or choose another quality.")
-                if !self.hasActiveWork { self.statusText = self.readinessStatus }
+                if !self.hasActiveWork && self.activityPhase == "idle" { self.statusText = self.readinessStatus }
             }
             defer { deadline.cancel() }
             do {
@@ -411,7 +543,7 @@ final class DictationController: ObservableObject {
             } catch {
                 self.readiness.complete(token, error: error.localizedDescription)
             }
-            if self.readiness.generation == token && !self.hasActiveWork {
+            if self.readiness.generation == token && !self.hasActiveWork && self.activityPhase == "idle" {
                 self.statusText = self.readinessStatus
             }
         }
@@ -467,11 +599,16 @@ final class DictationController: ObservableObject {
             recordingStartedByFn = true
             fnReleasedDuringStartup = false
             compressMode = action == .compressStart
-            Task {
+            pendingFnStart?.cancel()
+            pendingFnStart = Task {
+                // Give Fn+R a short chord window before allocating a quick-take recorder.
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                guard !Task.isCancelled, !fnReleasedDuringStartup else { return }
                 await startRecording(triggeredByFn: true, forceMeetingAudio: false)
             }
         case .stop, .compressStop:
             blockedHUDVisible = false
+            if meetingAfterStartup { return }
             guard recordingStartedByFn else {
                 return
             }
@@ -481,9 +618,16 @@ final class DictationController: ObservableObject {
                 stopRecording()
             }
         case .toggle:
+            if canCancelTranscription && !isRecording {
+                meetingAfterTranscription = true
+                cancelFileTranscription()
+                return
+            }
+            if !operationInProgress { pendingFnStart?.cancel() }
+            pendingFnStart = nil
+            blockedHUDVisible = false
             switch MeetingToggle.result(isRecording: isRecording || operationInProgress, startedByHold: recordingStartedByFn) {
             case .start:
-                guard ensureReady() else { return }
                 if operationInProgress {
                     statusText = "Still starting the previous recording…"
                     return
@@ -492,9 +636,13 @@ final class DictationController: ObservableObject {
                     await startRecording(triggeredByFn: false, forceMeetingAudio: true)
                 }
             case .latch:
+                // Preserve an already-started quick take, then switch to durable meeting capture.
+                guard isRecording else { meetingAfterStartup = true; return }
                 recordingStartedByFn = false
                 fnReleasedDuringStartup = false
-                statusText = "Recording microphone + Mac audio — Fn+R to stop"
+                isRecording = false
+                operationInProgress = true
+                Task { await saveQuickTakeAndStartMeeting() }
             case .stop:
                 stopRecording()
             }
@@ -502,7 +650,14 @@ final class DictationController: ObservableObject {
     }
 
     private func startRecording(triggeredByFn: Bool, forceMeetingAudio: Bool) async {
+        if !triggeredByFn {
+            await startMeeting(includeSystemAudio: meetingCaptureEnabled || forceMeetingAudio)
+            return
+        }
         guard !isRecording, !operationInProgress, ensureReady(), let archive else { return }
+        meetingSession = false
+        activityPhase = "starting"
+        activityStartedAt = Date()
         let token = readiness.generation
         sessionEngine = transcriptionEngine
         if !triggeredByFn {
@@ -577,43 +732,8 @@ final class DictationController: ObservableObject {
                 throw error
             }
 
-            let captureMeeting = meetingCaptureEnabled || forceMeetingAudio
-            var captureStartLog: [String] = []
-            if captureMeeting {
-                let t0 = Date()
-                if !systemAudioGranted {
-                    systemAudioGranted = SystemAudioCapture.requestPermission()
-                    captureStartLog.append(systemAudioGranted ? "permission-ok" : "permission-denied")
-                }
-                if systemAudioGranted {
-                    var capture = SystemAudioCapture()
-                    var started = false
-                    for attempt in 0..<3 {
-                        if attempt > 0 {
-                            try? await Task.sleep(nanoseconds: 300_000_000)
-                            capture = SystemAudioCapture()
-                        }
-                        do {
-                            try await capture.start()
-                            systemAudioCapture = capture
-                            captureStartLog.append("attempt\(attempt + 1)-ok+\(String(format: "%.2f", Date().timeIntervalSince(t0)))s")
-                            started = true
-                            break
-                        } catch {
-                            captureStartLog.append("attempt\(attempt + 1)-failed(\(error.localizedDescription))")
-                        }
-                    }
-                    if !started {
-                        // Another app (browser screen-share, Zoom, OBS) likely holds the
-                        // ScreenCaptureKit session. Keep recording mic-only — never block.
-                        systemAudioCapture = nil
-                        transcriptionHUDTitle = "Mac audio busy in another app — microphone only"
-                    }
-                } else {
-                    transcriptionHUDTitle = "Mac audio permission needed — microphone only"
-                }
-            }
-            Logger(subsystem: "de.emin.DictateMac", category: "Meeting").notice("meeting start: \(captureMeeting) [\(captureStartLog.joined(separator: ","))]")
+            // Quick Fn is microphone-only: no Mac audio startup or meeting resources.
+            let captureMeeting = false
 
             currentSessionAutoPasteEnabled = autoPasteEnabled
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
@@ -621,7 +741,11 @@ final class DictationController: ObservableObject {
             session.metadata.systemAudioCaptured = systemAudioCapture != nil
             try archive.writeMetadata(for: session)
             currentSession = session
+            activeSessionID = session.metadata.sessionID
+            refreshSessions()
             isRecording = true
+            activityPhase = "recording"
+            activityStartedAt = microphoneStartedAt
             if transcriptionHUDTitle == "Starting recording…" {
                 transcriptionHUDTitle = streamingActive
                     ? "Recording — listening…"
@@ -636,6 +760,13 @@ final class DictationController: ObservableObject {
                     : "Recording microphone + Mac audio — Fn+R to stop"
             } else {
                 statusText = triggeredByFn ? "Recording — release Fn to stop" : "Recording — Fn+R to stop"
+            }
+            if meetingAfterStartup {
+                meetingAfterStartup = false
+                isRecording = false
+                operationInProgress = true
+                await saveQuickTakeAndStartMeeting()
+                return
             }
             if triggeredByFn && fnReleasedDuringStartup {
                 fnReleasedDuringStartup = false
@@ -655,6 +786,12 @@ final class DictationController: ObservableObject {
     }
 
     private func stopRecording() {
+        if isMeetingStarting {
+            meetingStartupCancelled = true
+            statusText = "Cancelling recording start…"
+            return
+        }
+        if meetingSession { stopMeeting(); return }
         guard isRecording, !operationInProgress else {
             return
         }
@@ -665,6 +802,7 @@ final class DictationController: ObservableObject {
         isBusy = true
         operationInProgress = true
         statusText = "Saving recording"
+        activityPhase = "saving"
         transcriptionHUDTitle = systemAudioCapture == nil
             ? "Saving microphone audio"
             : "Saving microphone + Mac audio"
@@ -701,6 +839,8 @@ final class DictationController: ObservableObject {
             self.systemAudioCapture = nil
             self.microphoneStartedAt = nil
             session.metadata.systemAudioCaptured = !(systemAudio?.samples.isEmpty ?? true)
+            activityPhase = "transcribing"
+            activityStartedAt = Date()
             transcriptionHUDTitle = "Transcribing locally, please wait…"
             statusText = "Transcribing locally, please wait…"
             if streamingActive {
@@ -791,6 +931,8 @@ final class DictationController: ObservableObject {
             session.metadata.autoPasteEnabled = currentSessionAutoPasteEnabled
             session.metadata.error = nil
             try archive.complete(session)
+            activityPhase = "completed"
+            refreshSessions()
 
             stopLivePresentation()
             refreshAccessibilityPermission()
@@ -812,6 +954,8 @@ final class DictationController: ObservableObject {
             session.metadata.error = error.localizedDescription
             try? archive.writeMetadata(for: session)
             stopLivePresentation()
+            activityPhase = "failed"
+            refreshSessions()
             statusText = "Transcription failed: \(error.localizedDescription)"
             if sessionEngine == transcriptionEngine, !(error is DictationError) {
                 let token = readiness.begin(engineID: transcriptionEngine.rawValue)
@@ -822,9 +966,207 @@ final class DictationController: ObservableObject {
         stopLivePresentation()
         currentSession = nil
         targetApplication = nil
+        activeSessionID = nil
         isBusy = false
         operationInProgress = false
+        refreshSessions()
     }
+
+    private func updateAudioActivity() {
+        guard isRecording else { return }
+        recordingElapsed = max(0, Date().timeIntervalSince(microphoneStartedAt ?? Date()))
+        microphoneLevel = streamingActive ? (liveAudioProgress.waveform.last ?? 0) : micRecorder.level
+        microphoneStatus = (!streamingActive && !micRecorder.isRecording) ? "Not recording" : (microphoneLevel > 0.01 ? "Receiving audio" : "Quiet")
+        if let capture = systemAudioCapture {
+            systemAudioLevel = capture.level
+            if let error = capture.captureError { systemAudioStatus = error }
+            else if capture.hasReceivedAudio { systemAudioStatus = systemAudioLevel > 0.01 ? "Receiving audio" : "Quiet" }
+        }
+    }
+
+    private func startMeeting(includeSystemAudio: Bool) async {
+        guard !hasActiveWork, let archive else { return }
+        isMeetingStarting = true
+        meetingStartupCancelled = false
+        defer { isMeetingStarting = false }
+        operationInProgress = true
+        isBusy = true
+        activityPhase = "starting"
+        activityStartedAt = Date()
+        blockedHUDVisible = false
+        statusText = "Starting microphone…"
+        let granted: Bool
+        if let meetingPermission { granted = await meetingPermission() }
+        else { granted = await AudioRecorder.requestPermission() }
+        guard !meetingStartupCancelled else {
+            activityPhase = "idle"
+            statusText = "Recording start cancelled"
+            finishBackgroundWork()
+            return
+        }
+        guard granted else {
+            microphoneGranted = false
+            activityPhase = "failed"
+            statusText = "Microphone denied — allow it in System Settings"
+            finishBackgroundWork()
+            return
+        }
+        microphoneGranted = true
+        do {
+            var session = try archive.startSession(sourceApplication: "Meeting")
+            session.metadata.autoPasteEnabled = false
+            session.metadata.meetingCaptureEnabled = includeSystemAudio
+            session.metadata.systemAudioCaptured = false
+            try archive.writeMetadata(for: session)
+            currentSession = session
+            activeSessionID = session.metadata.sessionID
+            refreshSessions()
+            try micRecorder.start(at: session.audioURL)
+            // From this point audio is on disk. No ML or SCK wait can block Stop/UI.
+            microphoneStartedAt = Date()
+            activityStartedAt = microphoneStartedAt
+            recordingElapsed = 0
+            microphoneLevel = 0
+            systemAudioLevel = 0
+            microphoneStatus = "Listening"
+            systemAudioStatus = includeSystemAudio ? "Starting…" : "Off"
+            recordingStartedByFn = false
+            fnReleasedDuringStartup = false
+            compressMode = false
+            meetingSession = true
+            streamingActive = false
+            isRecording = true
+            isLatchedRecordingPublished = true
+            operationInProgress = false
+            isBusy = false
+            activityPhase = "recording"
+            statusText = "Recording meeting — audio saved to disk"
+            if includeSystemAudio { startMeetingSystemAudio(for: session) }
+        } catch {
+            micRecorder.stop()
+            if let session = currentSession { persistFailure(session, error: error) }
+            else { activityPhase = "failed"; statusText = error.localizedDescription }
+            currentSession = nil
+            finishBackgroundWork()
+        }
+    }
+
+    private func startMeetingSystemAudio(for session: DictationSession) {
+        let id = session.metadata.sessionID
+        meetingSystemTask = Task {
+            guard !Task.isCancelled, isRecording, currentSession?.metadata.sessionID == id else { return }
+            guard SystemAudioCapture.isAuthorized else {
+                systemAudioStatus = "Unavailable — allow computer audio"
+                return
+            }
+            let audioURL = session.audioURL.deletingPathExtension().appendingPathExtension("system.wav")
+            let capture = SystemAudioCapture()
+            systemAudioCapture = capture
+            let start = Date()
+            do {
+                // Persist the side-track path before capture begins so relaunch can find it.
+                if var current = currentSession, current.metadata.sessionID == id {
+                    current.metadata.systemAudioFilename = audioURL.lastPathComponent
+                    current.metadata.systemAudioOffset = max(0, start.timeIntervalSince(microphoneStartedAt ?? start))
+                    try archive?.writeMetadata(for: current)
+                    currentSession = current
+                    refreshSessions()
+                }
+                try await capture.start(at: audioURL)
+                guard isRecording, currentSession?.metadata.sessionID == id, !Task.isCancelled else {
+                    await capture.stopToFile()
+                    return
+                }
+                systemAudioStatus = "Listening"
+            } catch {
+                guard isRecording, currentSession?.metadata.sessionID == id else { return }
+                systemAudioStatus = "Unavailable — microphone only"
+                statusText = "Recording microphone — Mac audio unavailable: " + error.localizedDescription
+            }
+        }
+    }
+
+    private func stopMeeting() {
+        guard isRecording, let session = currentSession else { return }
+        recordingElapsed = max(0, Date().timeIntervalSince(microphoneStartedAt ?? Date()))
+        micRecorder.stop() // finalize primary WAV immediately, before ANY asynchronous work
+        isRecording = false
+        isLatchedRecordingPublished = false
+        operationInProgress = true
+        isBusy = true
+        activityPhase = "saving"
+        activityStartedAt = Date()
+        statusText = "Saving meeting audio…"
+        meetingSystemTask?.cancel()
+        Task {
+            var saved = session
+            if let capture = systemAudioCapture {
+                await capture.stopToFile()
+                saved.metadata.systemAudioCaptured = capture.hasReceivedAudio
+                saved.metadata.captureWarning = capture.captureError
+                if !capture.hasReceivedAudio { saved.metadata.captureWarning = "No Mac audio received — microphone recording retained" }
+                if let started = microphoneStartedAt { saved.metadata.systemAudioOffset = capture.offset(relativeTo: started) }
+            }
+            await meetingSystemTask?.value
+            meetingSystemTask = nil
+            systemAudioCapture = nil
+            microphoneStartedAt = nil
+            if saved.metadata.meetingCaptureEnabled == true && saved.metadata.systemAudioCaptured != true {
+                saved.metadata.captureWarning = "Mac audio unavailable — microphone recording retained"
+            }
+            saved.metadata.durationSeconds = Self.audioDuration(saved.audioURL) ?? recordingElapsed
+            saved.metadata.status = .saved
+            do {
+                try archive?.writeMetadata(for: saved)
+                refreshSessions()
+                // Mix a separate derived file. Mic and Mac source tracks are never overwritten.
+                if saved.metadata.systemAudioCaptured == true, let name = saved.metadata.systemAudioFilename {
+                    let mic = saved.audioURL
+                    let system = saved.folderURL.appendingPathComponent(name)
+                    let mixed = mic.deletingPathExtension().appendingPathExtension("mixed.wav")
+                    let offset = saved.metadata.systemAudioOffset ?? 0
+                    try await Task.detached(priority: .utility) {
+                        try MeetingAudioFile.mix(microphone: mic, system: system, destination: mixed, offset: offset)
+                    }.value
+                    saved.metadata.transcriptionAudioFilename = mixed.lastPathComponent
+                    try archive?.writeMetadata(for: saved)
+                }
+                currentSession = nil
+                meetingSession = false
+                await transcribeSavedSession(saved)
+            } catch {
+                persistFailure(saved, error: error)
+            }
+            currentSession = nil
+            meetingSession = false
+            finishBackgroundWork()
+        }
+    }
+
+    /// Fn+R after a quick take already started: retain that take before switching capture.
+    private func saveQuickTakeAndStartMeeting() async {
+        guard var session = currentSession else { operationInProgress = false; return }
+        do {
+            let system: CapturedSystemAudio?
+            if let capture = systemAudioCapture, let started = microphoneStartedAt {
+                system = await capture.stop(relativeTo: started)
+            } else { system = nil }
+            if streamingActive { _ = try await transcriber.stopStreamingAndSave(to: session.audioURL, systemAudio: system) }
+            else { micRecorder.stop() }
+            session.metadata.status = .saved
+            session.metadata.durationSeconds = Self.audioDuration(session.audioURL)
+            try archive?.writeMetadata(for: session)
+        } catch { persistFailure(session, error: error) }
+        streamingActive = false
+        systemAudioCapture = nil
+        currentSession = nil
+        microphoneStartedAt = nil
+        stopLivePresentation()
+        operationInProgress = false
+        refreshSessions()
+        await startMeeting(includeSystemAudio: true)
+    }
+
 
     private func enhanceIfEnabled(_ transcript: String) async -> (
         enhancement: TranscriptEnhancement?,

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.28 — 2026-09-07
+
+### Rationale
+
+Meeting audio is the primary result; transcription can follow later. Hidden failures and model loading must never hide or prevent a meeting recording.
+
+- Separate disk-backed, model-independent meeting capture from readiness-gated Fn dictation. Capture mic first, bound Mac audio startup, retain both source tracks and a separate mix.
+- Show colored REC/TXT elapsed time, real input meters, source availability and sticky completion/error in the menu bar and live dropdown. Clicking the icon opens controls instead of stopping silently.
+- List every saved, failed, interrupted and completed session with Transcribe/Retry, Show audio and Copy/Open transcript. Retry preserves session identity and original audio.
+- Run long transcription only after audio is finalized; cancel preserves a saved take. Starting a meeting preempts cancellable background ASR. Never auto-paste background meeting/import results.
+- Preserve runtime dylib resolution, distinguish signals/exit errors, spool process output without pipe deadlocks and use final transcript files, not previews, for results. VAD progress stays indeterminate rather than showing false percentages.
+- Prevent silent Quit during work and duplicate-instance archive recovery. Restore interrupted sessions on next launch.
+
+
 ## 0.9.27 — 2026-09-05
 
 ### Rationale

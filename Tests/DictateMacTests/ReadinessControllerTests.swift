@@ -19,11 +19,11 @@ final class ReadinessControllerTests: XCTestCase {
     }
 
     @MainActor
-    func testEveryFnStartAndFileIsBlockedWhileLoadingWithoutArchiveOrMic() async throws {
+    func testQuickFnIsBlockedWhileLoadingWithoutArchiveOrMic() async throws {
         let c = controller { _ in }
         XCTAssertEqual(c.readiness.phase, .loading)
-        XCTAssertFalse(c.canToggleRecording)
-        for action in [PushToTalkAction.start, .compressStart, .toggle] {
+        XCTAssertFalse(c.canStartDictation)
+        for action in [PushToTalkAction.start, .compressStart] {
             c.handleFnAction(action)
             XCTAssertFalse(c.isRecording)
             XCTAssertFalse(c.hasActiveWork)
@@ -49,9 +49,9 @@ final class ReadinessControllerTests: XCTestCase {
         c.handleFnAction(.stop)
         fail = false
         c.retryReadiness()
-        XCTAssertFalse(c.canToggleRecording)
+        XCTAssertFalse(c.canStartDictation)
         try await settled(c)
-        XCTAssertTrue(c.canToggleRecording) // preview never started in this controller
+        XCTAssertTrue(c.canStartDictation) // preview never started in this controller
         XCTAssertTrue(c.canTranscribeFile)
         // Completing validation never automatically records a previously blocked hold.
         XCTAssertFalse(c.isRecording)
@@ -65,15 +65,15 @@ final class ReadinessControllerTests: XCTestCase {
         }
         c.refreshReadiness()
         try await settled(c)
-        XCTAssertTrue(c.canToggleRecording)
+        XCTAssertTrue(c.canStartDictation)
         c.transcriptionEngine = .whisperKit
-        XCTAssertFalse(c.canToggleRecording)
+        XCTAssertFalse(c.canStartDictation)
         c.transcriptionEngine = .qwen3ASR
         c.handleFnAction(.start)
         try await settled(c)
         XCTAssertEqual(c.readiness.engineID, TranscriptionEngine.qwen3ASR.rawValue)
         XCTAssertEqual(c.readiness.error, "Missing cached weights")
-        XCTAssertFalse(c.canToggleRecording)
+        XCTAssertFalse(c.canStartDictation)
         XCTAssertFalse(c.isRecording)
     }
 
@@ -87,7 +87,7 @@ final class ReadinessControllerTests: XCTestCase {
         while release == nil { await Task.yield() }
         c.transcriptionEngine = .whisperCpp
         try await settled(c)
-        XCTAssertTrue(c.canToggleRecording)
+        XCTAssertTrue(c.canStartDictation)
         release?.resume()
         await Task.yield()
         XCTAssertEqual(c.readiness.engineID, TranscriptionEngine.whisperCpp.rawValue)
@@ -106,7 +106,7 @@ final class ReadinessControllerTests: XCTestCase {
         try await settled(c)
         XCTAssertTrue(c.readiness.error?.contains("Model is missing:") == true)
         c.handleFnAction(.start)
-        XCTAssertFalse(c.canToggleRecording)
+        XCTAssertFalse(c.canStartDictation)
         XCTAssertFalse(c.hasActiveWork)
     }
 
@@ -125,7 +125,7 @@ final class ReadinessControllerTests: XCTestCase {
         try await settled(c)
         XCTAssertNotNil(c.readiness.error)
         c.handleFnAction(.start)
-        XCTAssertFalse(c.canToggleRecording)
+        XCTAssertFalse(c.canStartDictation)
         XCTAssertFalse(c.hasActiveWork)
     }
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-14 — [RELEASE] v0.9.26 — hermes-agent for emino
+
+State of `main` at HEAD `0a4bae79` (app version 0.9.26, build 45). First GitHub release since v0.9.9 (`7d68ff72`); covers app versions 0.9.10 to 0.9.26.
+
+- Engines: whisper.cpp sidecar is the default full-file engine (`2d5e97d5`), with q5_0 model (`f95e1b34`) and Silero VAD against hallucinations (`e2a88993`). Engine picker adds Qwen3-ASR sidecar (`c1a853fc`).
+- Live preview: WhisperKit streaming runs for every engine and loads async (`83504120`); recording no longer depends on WhisperKit (`b6e233af`).
+- File transcription: Cmd+O for audio and movies via afconvert (`aa37fc5e`), with progress, partial text and Stop (`48459348`), without the HUD overlay (`520446c6`).
+- Fn+A compress mode via local Ollama `qwen3:4b` (`cc000790`).
+- Main window: visible at launch (`e9944677`), minimal Record + Transcribe UI with Advanced settings (`e8df35b2`), Reveal in Finder per transcript (`0a4bae79`).
+- Menu bar: native menu and auto-learning Brain (`20515b88`), hideable HUD and stop icon (`18f72803`), background transcription (`d05641f3`), activity icon and copyable recent transcripts (`70ba06e9`).
+- HUD text unified at 17pt monospaced (`7dd07062`).
+- Docs: local ASR benchmark (`275be93b`).
+- Not on main: open PRs #7, #9, #11, #13 (versions 0.9.27 to 0.9.32).
+
 ## 0.9.26 — 2026-08-31
 
 - Transcript list: folder icon per entry reveals the file in Finder (alongside Copy).

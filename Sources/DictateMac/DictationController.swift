@@ -252,10 +252,12 @@ final class DictationController: ObservableObject {
                 imported = session
                 activeSessionID = session.metadata.sessionID
                 refreshSessions()
+                // Normalize ANY import into the archive WAV first. The external source
+                // is only read, never deleted. prepareSavedAudio (via transcribeSavedSession)
+                // then compresses the archived WAV; when compression fails the WAV stays
+                // as the saved retry source instead of losing the import.
                 let destination = session.audioURL
-                try await Task.detached(priority: .utility) {
-                    try Self.convertToWav16kMono(url, to: destination)
-                }.value
+                try await Self.convertToWav16kMono(url, to: destination)
                 session.metadata.status = .saved
                 session.metadata.durationSeconds = Self.audioDuration(destination)
                 try archive.writeMetadata(for: session)
@@ -350,9 +352,34 @@ final class DictationController: ObservableObject {
     func revealAudioInFolder(_ id: String) {
         guard let session = sessions.first(where: { $0.metadata.sessionID == id }) else { return }
         var files = [session.audioURL]
-        if let name = session.metadata.recoveredAudioFilename { files.append(session.folderURL.appendingPathComponent(name)) }
-        if let name = session.metadata.systemAudioFilename { files.append(session.folderURL.appendingPathComponent(name)) }
+        if let name = session.metadata.compressedAudioFilename {
+            files.append(session.folderURL.appendingPathComponent(name))
+        }
+        if let name = session.metadata.recoveredAudioFilename {
+            files.append(session.folderURL.appendingPathComponent(name))
+        }
+        if let name = session.metadata.systemAudioFilename {
+            files.append(session.folderURL.appendingPathComponent(name))
+        }
         NSWorkspace.shared.activateFileViewerSelecting(files.filter { FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    /// Purge completed session audio that has been compressed. Returns cleanup summary.
+    func completedAudioCleanupSummary() throws -> AudioCleanupSummary {
+        guard !hasActiveWork, !isMeetingStarting, let archive else {
+            throw CocoaError(.userCancelled)
+        }
+        return try archive.completedAudioCleanupSummary()
+    }
+
+    /// Delete superseded WAV files for completed compressed sessions.
+    func deleteCompletedAudio() throws -> AudioCleanupSummary {
+        guard !hasActiveWork, !isMeetingStarting, let archive else {
+            throw CocoaError(.userCancelled)
+        }
+        let summary = try archive.deleteCompletedAudio()
+        refreshSessions()
+        return summary
     }
 
     func openTranscript(_ id: String) {
@@ -367,10 +394,67 @@ final class DictationController: ObservableObject {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// Shared by first Stop and Retry: recover the mic before any mixed file can be selected.
+    /// Shared by first Stop and Retry. Order is load-bearing:
+    /// 1. A valid persisted compressed file bypasses microphone recovery and mixing
+    ///    entirely — the originals may already be purged, so repeated prepare after
+    ///    source purge is idempotent and never recompresses.
+    /// 2. Microphone recovery and the mic+Mac mix run BEFORE any compression; the
+    ///    mixed reference is persisted before the mix becomes the compression source.
+    /// 3. Compression failure preserves every original so a saved session retries.
     func prepareSavedAudio(for original: DictationSession) async throws -> DictationSession {
         guard let archive else { throw CocoaError(.fileReadNoSuchFile) }
-        var session = try archive.recoverMicrophone(for: original)
+        var session = original
+        // Honor references persisted by an earlier prepare even when the caller
+        // still holds an older in-memory copy.
+        if let persisted = try? MetadataCodec.decode(Data(contentsOf: session.metadataURL)),
+           persisted.sessionID == session.metadata.sessionID {
+            if session.metadata.compressedAudioFilename == nil {
+                session.metadata.compressedAudioFilename = persisted.compressedAudioFilename
+            }
+            // Honor a persisted mix only while its file actually exists.
+            if session.metadata.transcriptionAudioFilename == nil,
+               let mix = persisted.transcriptionAudioFilename,
+               FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(mix).path) {
+                session.metadata.transcriptionAudioFilename = mix
+            }
+        }
+        if let compressedName = session.metadata.compressedAudioFilename {
+            let compressedURL = session.folderURL.appendingPathComponent(compressedName)
+            if let duration = try? CompressedAudio.validateSource(compressedURL) {
+                session.metadata.durationSeconds = duration
+                return session
+            }
+            // Stale or corrupt compressed reference: rebuild from originals when any
+            // survive; otherwise the session has no playable source left.
+            let originalNames = [
+                session.metadata.transcriptionAudioFilename,
+                session.metadata.recoveredAudioFilename,
+                session.metadata.audioFilename,
+            ].compactMap { $0 }
+            guard originalNames.contains(where: {
+                FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent($0).path)
+            }) else {
+                throw CompressedAudio.CompressionError.invalidSource(
+                    "Compressed audio is unreadable and the originals were purged")
+            }
+            session.metadata.compressedAudioFilename = nil
+            // Drop dangling derived references so recovery starts from what exists.
+            if let name = session.metadata.recoveredAudioFilename,
+               !FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(name).path) {
+                session.metadata.recoveredAudioFilename = nil
+            }
+            if let name = session.metadata.transcriptionAudioFilename,
+               !FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(name).path) {
+                session.metadata.transcriptionAudioFilename = nil
+            }
+            // Persist the cleared references so recoverMicrophone (which re-reads
+            // persisted metadata) starts from what actually exists on disk.
+            try archive.writeMetadata(for: session)
+        }
+
+        session = try archive.recoverMicrophone(for: session)
+
+        // Mix mic + Mac audio BEFORE compression; the mix is the compression source.
         if session.metadata.transcriptionAudioFilename == nil,
            let systemName = session.metadata.systemAudioFilename,
            FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(systemName).path),
@@ -383,8 +467,49 @@ final class DictationController: ObservableObject {
                 try MeetingAudioFile.mix(microphone: microphone, system: system, destination: mixed, offset: offset)
             }.value
             session.metadata.transcriptionAudioFilename = mixed.lastPathComponent
+            // Persist the mixed reference before compression so an interrupted run
+            // resumes from the mix instead of re-deriving or compressing mic-only audio.
+            try archive.writeMetadata(for: session)
         }
-        let audio = session.folderURL.appendingPathComponent(session.metadata.transcriptionAudioFilename ?? session.metadata.recoveredAudioFilename ?? session.metadata.audioFilename)
+
+        // Determine the authoritative compression source: the mix when present.
+        let sourceName = session.metadata.transcriptionAudioFilename
+            ?? session.metadata.recoveredAudioFilename
+            ?? session.metadata.audioFilename
+        let sourceURL = session.folderURL.appendingPathComponent(sourceName)
+
+        // Skip compression when the source already is compressed; test doubles with
+        // synthetic fixtures skip invalid sources instead of recording fake warnings.
+        let shouldCompress = session.metadata.compressedAudioFilename == nil
+            && !CompressedAudio.isCompressedFormat(sourceURL)
+            && (fileTranscriber == nil || (try? CompressedAudio.validateSource(sourceURL)) != nil)
+
+        if shouldCompress {
+            let compressedURL = session.audioURL.deletingPathExtension().appendingPathExtension("m4a")
+            do {
+                let result = try await CompressedAudio.compress(source: sourceURL, destination: compressedURL)
+                session.metadata.compressedAudioFilename = compressedURL.lastPathComponent
+                session.metadata.durationSeconds = result.duration
+                try archive.writeMetadata(for: session)
+                // Only after the compressed reference is durable may originals go.
+                _ = try? archive.removeSupersededAudio(for: session)
+            } catch {
+                // Compression failure: preserve originals, continue with WAV fallback.
+                session.metadata.compressedAudioFilename = nil
+                session.metadata.captureWarning = Self.captureWarning(
+                    session.metadata.captureWarning,
+                    adding: "AAC compression unavailable: \(error.localizedDescription). Using original audio."
+                )
+                try archive.writeMetadata(for: session)
+            }
+        }
+
+        let audio = session.folderURL.appendingPathComponent(
+            session.metadata.compressedAudioFilename
+                ?? session.metadata.transcriptionAudioFilename
+                ?? session.metadata.recoveredAudioFilename
+                ?? session.metadata.audioFilename
+        )
         session.metadata.durationSeconds = Self.audioDuration(audio) ?? session.metadata.durationSeconds
         return session
     }
@@ -396,6 +521,9 @@ final class DictationController: ObservableObject {
         activityStartedAt = Date()
         fileProgress = 0
         filePartialText = ""
+        var tempDecodeURL: URL?
+        defer { if let temp = tempDecodeURL { CompressedAudio.cleanupTemporaryWAV(temp) } }
+
         do {
             session = try await prepareSavedAudio(for: session)
             // Meetings/retries can outlive readiness startup. Never wait for a stuck preview.
@@ -415,15 +543,31 @@ final class DictationController: ObservableObject {
             activityPhase = "transcribing"
             isTranscribingFile = true
             statusText = "Transcribing locally, please wait…"
-            let audio = session.folderURL.appendingPathComponent(session.metadata.transcriptionAudioFilename ?? session.metadata.recoveredAudioFilename ?? session.metadata.audioFilename)
+
+            // Resolve audio source: prefer compressed, decode to temp WAV for engines
+            let sourceName = session.metadata.compressedAudioFilename
+                ?? session.metadata.transcriptionAudioFilename
+                ?? session.metadata.recoveredAudioFilename
+                ?? session.metadata.audioFilename
+            let sourceURL = session.folderURL.appendingPathComponent(sourceName)
+
+            // For compressed formats, decode to temporary 16k mono WAV for engine compatibility
+            let engineInputURL: URL
+            if CompressedAudio.isCompressedFormat(sourceURL) {
+                tempDecodeURL = try await CompressedAudio.temporaryWAV16kMono(from: sourceURL)
+                engineInputURL = tempDecodeURL!
+            } else {
+                engineInputURL = sourceURL
+            }
+
             let text: String
             let engine = transcriptionEngine
             if let fileTranscriber {
-                text = try await fileTranscriber(audio)
+                text = try await fileTranscriber(engineInputURL)
             } else {
                 switch engine {
                 case .whisperCpp:
-                    let task = try WhisperCppFileTask(wavURL: audio)
+                    let task = try WhisperCppFileTask(wavURL: engineInputURL)
                     activeFileTask = task
                     canCancelTranscription = true
                     text = try await task.run { [weak self] snapshot in
@@ -435,9 +579,9 @@ final class DictationController: ObservableObject {
                         }
                     }
                 case .qwen3ASR:
-                    text = try await QwenASRService.transcribe(wavURL: audio).text
+                    text = try await QwenASRService.transcribe(wavURL: engineInputURL).text
                 case .whisperKit:
-                    text = try await transcriber.transcribe(wavURL: audio)
+                    text = try await transcriber.transcribe(wavURL: engineInputURL)
                 }
             }
             let transcript = TranscriptCleaner.clean(text)
@@ -541,21 +685,19 @@ final class DictationController: ObservableObject {
         }
     }
 
-    nonisolated private static func convertToWav16kMono(_ source: URL, to destination: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/afconvert")
-        process.arguments = [
-            "-f", "WAVE", "-d", "LEI16@16000", "-c", "1",
-            source.path, destination.path,
-        ]
-        let err = Pipe()
-        process.standardError = err
-        process.standardOutput = Pipe()
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let message = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            throw AudioConversionError.afconvertFailed(exit: process.terminationStatus, message: message)
+    /// afconvert stdout/stderr spool to private files via SubprocessCapture — never
+    /// undrained Pipes that can block the encoder mid-write.
+    nonisolated private static func convertToWav16kMono(_ source: URL, to destination: URL) async throws {
+        let result = try await SubprocessCapture.run(
+            executableURL: URL(fileURLWithPath: "/usr/bin/afconvert"),
+            arguments: [
+                "-f", "WAVE", "-d", "LEI16@16000", "-c", "1",
+                source.path, destination.path,
+            ]
+        )
+        guard result.terminationStatus == 0 else {
+            let message = String(decoding: result.stderr, as: UTF8.self)
+            throw AudioConversionError.afconvertFailed(exit: result.terminationStatus, message: message)
         }
     }
 
@@ -1039,6 +1181,10 @@ final class DictationController: ObservableObject {
             session.metadata.status = .failed
             session.metadata.completedAt = Date()
             session.metadata.error = error.localizedDescription
+            // A failed quick take keeps its audio for Retry; compress that retry
+            // source when the codec allows it. A compression problem must never
+            // mask or replace the original failure.
+            if let prepared = try? await prepareSavedAudio(for: session) { session = prepared }
             try? archive.writeMetadata(for: session)
             stopLivePresentation()
             activityPhase = "failed"

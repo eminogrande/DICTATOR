@@ -2,6 +2,11 @@
 
 A fun, local macOS dictation app. Each take is transcribed in the language Whisper hears on the microphone. It does not translate into another language.
 
+## Logs
+
+- [CHANGELOG.md](CHANGELOG.md) — changes and rationale.
+- [PROMPTLOG.md](PROMPTLOG.md) — product requirements.
+
 ## Use
 
 1. Start `DICTATOR.app`; its microphone icon appears in the menu bar.
@@ -15,14 +20,24 @@ If auto-paste is unavailable, the transcript remains on the clipboard. Click **E
 
 ## What is stored
 
-Every attempt is kept permanently. Nothing is auto-deleted. Completed recordings use one flat archive with matching names:
+Text and session metadata remain in the flat archive. Finalized saved audio uses native AAC/M4A with a 128 kbit/s target; temporary crash-safe capture remains WAV. After a nonempty transcript and completed metadata have been saved, session-owned audio is automatically removed. Failed/untranscribed sessions keep audio for retry; failed compression preserves originals. Earlier completed recordings are removed only after an in-app confirmation, also available in **Settings → Speicherplatz**.
+
+```mermaid
+flowchart LR
+  Record[Record mic and Mac audio] --> Finalize[Recover and mix finalized tracks]
+  Finalize --> Compress[AAC M4A target 128 kbit per second]
+  Compress --> Transcribe[Local transcription]
+  Transcribe -->|success| Text[Keep transcript and metadata only]
+  Transcribe -->|failure| Retry[Keep audio and offer Retry]
+```
 
 ```text
 ~/Library/Application Support/DictateMac/Dictations/
-000001_2026-08-14_12-30_short-headline.wav
 000001_2026-08-14_12-30_short-headline.txt
 000001_2026-08-14_12-30_short-headline.json
 ```
+
+Audio filename references remain in metadata for lineage after deletion; a completed text-only recording remains visible as **Nur Text**.
 
 When optional AI enhancement succeeds, the exact local Whisper result is also kept as `000001_…_short-headline.raw.txt`; the normal `.txt` contains the validated corrected transcript.
 
@@ -95,4 +110,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.9.0`: verified dictation behavior plus multilingual hybrid Brain retrieval, source-backed semantic indexes, and incremental daily/manual managed-repository updates.
+Source version `0.9.33` / build `52` — 2026-10-18 — Hermes — implementation `e063b216`. [Draft PR #16](https://github.com/eminogrande/DICTATOR/pull/16), stacked on capture recovery; no merge or release. The preceding candidate passed 159 Swift tests (3 skipped, 0 failures), 28 Brain tests and actual whisper.cpp inference; its staged signed app built successfully. Final metadata-scan/marker/confirmation hardening and two added regressions still require a new test/build run. Installed version remains `0.9.32`; no historical audio was deleted. Local macOS verification/install approval is pending. See `docs/AUDIO_STORAGE_PLAN.md` for scope and preservation gates.

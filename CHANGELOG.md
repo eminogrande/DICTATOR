@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.33 — 2026-10-18 — Hermes — candidate
+
+Implementation `e063b216`; Draft PR #16. Not installed or released. Prior candidate: 159 Swift tests, 3 skipped, 0 failures; Brain 28 passed; real whisper.cpp inference passed; staged signed build passed. Final metadata-scan/marker/confirmation hardening and two new regressions await rerun and build approval.
+
+### Rationale
+Keep the text, not bulky audio. Preserve reliable recording and retry while reducing saved-audio storage and offering controlled cleanup of earlier transcribed recordings.
+
+- Finalized recordings use native AAC/M4A with a 128 kbit/s target; crash-safe temporary capture remains independent of model readiness.
+- Automatically remove session-owned audio only after nonempty transcription and completed metadata are saved. Failed/untranscribed recordings remain retryable.
+- Offer confirmed cleanup of existing completed recordings; repeat from Settings → Speicherplatz. Transcripts and metadata stay intact.
+- Transcript-only sessions remain visible with duration, copy and export; compressed recordings decode to temporary WAV for local transcription.
+
 ## 0.9.32
 
 ### Rationale

@@ -52,6 +52,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             workspaceToolbar
+            AudioStoragePreferencesView(controller: controller, offerAutomatically: true)
             Divider()
             if controller.hasActiveWork || controller.isMeetingStarting {
                 activeBanner
@@ -288,9 +289,15 @@ struct SettingsView: View {
                 }
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .accessibilityIdentifier("selected-session-metadata")
-                AudioPlaybackView(url: info?.audioURL,
-                    disabled: controller.isRecording || controller.isMeetingStarting || ["starting", "saving"].contains(controller.activityPhase),
-                    revision: "\(session.metadata.status.rawValue):\(info?.audioBytes ?? 0):\(info?.durationSeconds ?? 0)")
+                if session.metadata.audioDeletedAt != nil && info?.audioURL == nil {
+                    Label("Audio nach Transkription gelöscht · Text bleibt erhalten", systemImage: "doc.text")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("session-audio-removed")
+                } else {
+                    AudioPlaybackView(url: info?.audioURL,
+                        disabled: controller.isRecording || controller.isMeetingStarting || ["starting", "saving"].contains(controller.activityPhase),
+                        revision: "\(session.metadata.status.rawValue):\(info?.audioBytes ?? 0):\(info?.durationSeconds ?? 0)")
+                }
             }
             .padding(24)
             Divider()

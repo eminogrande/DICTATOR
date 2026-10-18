@@ -21,7 +21,8 @@ struct SessionLibraryInfo: Sendable {
         // Prefer the completed mix; never play only the mic when the saved mix exists.
         let mixed = metadata.transcriptionAudioFilename.map { session.folderURL.appendingPathComponent($0) }
         let recovered = metadata.recoveredAudioFilename.map { session.folderURL.appendingPathComponent($0) }
-        let candidates = [mixed, recovered, session.audioURL].compactMap { $0 }
+        let compressed = metadata.compressedAudioFilename.map { session.folderURL.appendingPathComponent($0) }
+        let candidates = [compressed, mixed, recovered, session.audioURL].compactMap { $0 }
         let playable = candidates.first { url in
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
                   let bytes = attributes[.size] as? NSNumber else { return false }
@@ -43,7 +44,7 @@ struct SessionLibraryInfo: Sendable {
 
     var durationLabel: String { Self.durationLabel(durationSeconds) }
     var sizeLabel: String {
-        guard let audioBytes else { return "—" }
+        guard let audioBytes else { return audioURL == nil && !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Nur Text" : "—" }
         return ByteCountFormatter.string(fromByteCount: audioBytes, countStyle: .file)
     }
 

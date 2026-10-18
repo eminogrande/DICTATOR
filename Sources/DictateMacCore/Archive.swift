@@ -150,6 +150,10 @@ public struct DictationMetadata: Codable, Equatable, Sendable {
     public var transcriptionAudioFilename: String?
     /// Derived microphone-only WAV. audioFilename always remains the original source.
     public var recoveredAudioFilename: String?
+    /// Compressed AAC M4A filename when available. Originals may be purged after this is set.
+    public var compressedAudioFilename: String?
+    /// Timestamp when completed-session audio was fully deleted; compaction does not set it.
+    public var audioDeletedAt: Date?
     public var rawTranscriptFilename: String?
     public var enhancementModel: String?
     public var enhancementEvidencePaths: [String]?
@@ -377,7 +381,10 @@ public struct ArchiveStore: Sendable {
             sequence = try nextSequence()
         }
         let base = ArchiveNaming.baseName(sequence: sequence, date: session.metadata.startedAt, headline: analysis.headline)
-        let audioURL = rootURL.appendingPathComponent(base + ".wav")
+        // Preserve the actual source extension (WAV capture, compressed M4A, …) so
+        // metadata audio refs and retention cleanup stay consistent through the rename.
+        let audioExtension = session.audioURL.pathExtension.isEmpty ? "wav" : session.audioURL.pathExtension
+        let audioURL = rootURL.appendingPathComponent(base + "." + audioExtension)
         let transcriptURL = rootURL.appendingPathComponent(base + ".txt")
         let rawTranscriptURL = rootURL.appendingPathComponent(base + ".raw.txt")
         let metadataURL = rootURL.appendingPathComponent(base + ".json")
@@ -539,6 +546,11 @@ public struct ArchiveStore: Sendable {
         // The derived graph cannot downgrade a durable completed transcript.
         do { try rebuildGraph() }
         catch { NSLog("DICTATOR derived graph rebuild failed: %@", error.localizedDescription) }
+        // Transcript-only retention: once the completed metadata and a nonempty
+        // transcript are durable, remove session-owned audio. Cleanup failure
+        // never downgrades the completed take.
+        do { _ = try removeCompletedAudio(for: session) }
+        catch { NSLog("DICTATOR completed audio cleanup failed: %@", error.localizedDescription) }
         return session
     }
 
@@ -548,7 +560,12 @@ public struct ArchiveStore: Sendable {
 
     public func complete(_ session: DictationSession) throws {
         try writeMetadata(for: session)
-        try rebuildGraph()
+        do { try rebuildGraph() }
+        catch { NSLog("DICTATOR derived graph rebuild failed: %@", error.localizedDescription) }
+        // Same durable-success retention as saveTranscript; failure cannot
+        // downgrade the persisted completed state.
+        do { _ = try removeCompletedAudio(for: session) }
+        catch { NSLog("DICTATOR completed audio cleanup failed: %@", error.localizedDescription) }
     }
 
     public func rebuildGraph() throws {

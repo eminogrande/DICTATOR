@@ -50,7 +50,10 @@ final class CaptureHealthTests: XCTestCase {
         XCTAssertEqual(saved.metadata.sessionID, original.metadata.sessionID)
         XCTAssertEqual(saved.metadata.status, .saved)
         XCTAssertTrue(saved.metadata.captureWarning?.contains("Mikrofon-Aufnahme unerwartet unterbrochen") == true)
-        XCTAssertEqual(try Data(contentsOf: saved.audioURL), bytes)
+        let compressed = saved.folderURL.appendingPathComponent(try XCTUnwrap(saved.metadata.compressedAudioFilename))
+        XCTAssertGreaterThan(try CompressedAudio.validateSource(compressed), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: saved.audioURL.path))
+        XCTAssertFalse(bytes.isEmpty)
         XCTAssertNotEqual(controller.activityPhase, "recording")
     }
 
@@ -66,7 +69,11 @@ final class CaptureHealthTests: XCTestCase {
         XCTAssertEqual(session.metadata.status, .completed)
         XCTAssertTrue(session.metadata.captureWarning?.contains("Mikrofon-Aufnahme unerwartet unterbrochen") == true)
         XCTAssertEqual(try String(contentsOf: session.transcriptURL, encoding: .utf8), "Dies ist eine lokale Testaufnahme.")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: session.audioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: session.audioURL.path))
+        XCTAssertNotNil(session.metadata.audioDeletedAt)
+        if let name = session.metadata.compressedAudioFilename {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: session.folderURL.appendingPathComponent(name).path))
+        }
     }
 
     @MainActor
@@ -158,29 +165,36 @@ final class CaptureHealthTests: XCTestCase {
         try native.write(to: session.audioURL)
         let systemURL = session.folderURL.appendingPathComponent(session.metadata.systemAudioFilename!)
         let systemWriter = try MeetingPCMWriter(url: systemURL)
-        try systemWriter.append([Float](repeating: 0, count: 16_000))
+        try systemWriter.append([Float](repeating: 0.25, count: 16_000))
         try systemWriter.close()
-        let systemBytes = try Data(contentsOf: systemURL)
         try archive.writeMetadata(for: session)
 
         let prepared = try await controller.prepareSavedAudio(for: session)
         XCTAssertNotNil(prepared.metadata.recoveredAudioFilename)
+        XCTAssertNotNil(prepared.metadata.transcriptionAudioFilename)
         XCTAssertTrue(prepared.metadata.captureWarning?.contains("unterbrochen") == true)
         XCTAssertEqual(prepared.metadata.audioFilename, session.metadata.audioFilename)
-        let mixedURL = session.folderURL.appendingPathComponent(try XCTUnwrap(prepared.metadata.transcriptionAudioFilename))
-        let mixed = try AVAudioFile(forReading: mixedURL)
-        XCTAssertEqual(mixed.length, 32_000)
-        mixed.framePosition = 16_000
-        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: mixed.processingFormat, frameCapacity: 16_000))
+        let compressedURL = session.folderURL.appendingPathComponent(try XCTUnwrap(prepared.metadata.compressedAudioFilename))
+        let decodedURL = try await CompressedAudio.temporaryWAV16kMono(from: compressedURL)
+        defer { CompressedAudio.cleanupTemporaryWAV(decodedURL) }
+        let mixed = try AVAudioFile(forReading: decodedURL)
+        XCTAssertEqual(Double(mixed.length) / mixed.processingFormat.sampleRate, 2, accuracy: 0.1)
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: mixed.processingFormat, frameCapacity: AVAudioFrameCount(mixed.length)))
         try mixed.read(into: buffer)
-        XCTAssertEqual(buffer.frameLength, 16_000)
-        XCTAssertGreaterThan(buffer.floatChannelData![0][0], 0.1)
-        XCTAssertEqual(try Data(contentsOf: session.audioURL), native)
-        XCTAssertEqual(try Data(contentsOf: systemURL), systemBytes)
-        XCTAssertEqual(SessionLibraryInfo(session: prepared).audioURL, mixedURL)
+        let samples = try XCTUnwrap(buffer.floatChannelData?[0])
+        let firstMean = (4_000..<12_000).reduce(Float(0)) { $0 + abs(samples[$1]) } / 8_000
+        let secondMean = (20_000..<28_000).reduce(Float(0)) { $0 + abs(samples[$1]) } / 8_000
+        XCTAssertGreaterThan(firstMean, 0.35, "First second must include Mac audio, not only the mic")
+        XCTAssertGreaterThan(secondMean, 0.15, "Recovered second half must survive compression")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: session.audioURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: systemURL.path))
+        XCTAssertEqual(SessionLibraryInfo(session: prepared).audioURL, compressedURL)
+        let compactBytes = try Data(contentsOf: compressedURL)
         let repeated = try await controller.prepareSavedAudio(for: prepared)
+        XCTAssertEqual(repeated.metadata.compressedAudioFilename, prepared.metadata.compressedAudioFilename)
         XCTAssertEqual(repeated.metadata.transcriptionAudioFilename, prepared.metadata.transcriptionAudioFilename)
         XCTAssertEqual(repeated.metadata.recoveredAudioFilename, prepared.metadata.recoveredAudioFilename)
+        XCTAssertEqual(try Data(contentsOf: compressedURL), compactBytes)
     }
 
     @MainActor

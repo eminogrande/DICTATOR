@@ -66,6 +66,33 @@ final class SessionLibraryTests: XCTestCase {
         XCTAssertEqual(SessionLibraryInfo.kind(for: metadata), "Import")
     }
 
+    func testTranscriptOnlySessionRetainsDurationAndTextWithoutPlayback() throws {
+        let (store, original) = try fixture()
+        defer { try? FileManager.default.removeItem(at: store.rootURL) }
+        var session = original
+        session.metadata.durationSeconds = 61
+        session.metadata.audioDeletedAt = Date()
+        try FileManager.default.removeItem(at: session.audioURL)
+        let info = SessionLibraryInfo(session: session)
+        XCTAssertNil(info.audioURL)
+        XCTAssertEqual(info.sizeLabel, "Nur Text")
+        XCTAssertEqual(info.durationLabel, "1:01")
+        XCTAssertEqual(info.transcript, "Hallo, Welt!")
+        XCTAssertEqual(info.wordCount, 2)
+    }
+
+    func testCompressedAudioPreferredOverLegacySources() throws {
+        let (store, original) = try fixture()
+        defer { try? FileManager.default.removeItem(at: store.rootURL) }
+        var session = original
+        let compressed = store.rootURL.appendingPathComponent("compact.m4a")
+        try Data(contentsOf: session.audioURL).write(to: compressed)
+        session.metadata.compressedAudioFilename = compressed.lastPathComponent
+        let info = SessionLibraryInfo(session: session)
+        XCTAssertEqual(info.audioURL, compressed)
+        XCTAssertEqual(info.transcript, "Hallo, Welt!")
+    }
+
     func testUnicodeWordCountAndUnknownDuration() {
         XCTAssertEqual(SessionLibraryInfo.countWords("Hallo, Welt!"), 2)
         XCTAssertEqual(SessionLibraryInfo.countWords("--- … ! \n"), 0)

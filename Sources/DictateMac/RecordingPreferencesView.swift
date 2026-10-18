@@ -35,6 +35,9 @@ struct RecordingPreferencesView: View {
                     Text("Aufnahmen sind auch ohne eingerichtete Transkription möglich.")
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
+                Section("Speicherplatz") {
+                    AudioStoragePreferencesView(controller: controller)
+                }
                 Section("Transkription") {
                     Picker("Qualität", selection: $controller.transcriptionEngine) {
                         ForEach(TranscriptionEngine.allCases) { engine in

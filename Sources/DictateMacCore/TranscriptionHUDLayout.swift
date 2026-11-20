@@ -7,11 +7,12 @@ public struct TranscriptionHUDLayoutResult: Equatable, Sendable {
 }
 
 public enum TranscriptionHUDLayout {
-    public static let verticalPadding: CGFloat = 48
-    public static let headerHeight: CGFloat = 88
-    public static let footerHeight: CGFloat = 52
-    public static let sectionSpacing: CGFloat = 16
-    public static let minimumHeight: CGFloat = 128
+    public static let verticalPadding: CGFloat = 12
+    public static let headerHeight: CGFloat = 20
+    public static let footerHeight: CGFloat = 22
+    public static let sectionSpacing: CGFloat = 6
+    public static let minimumHeight: CGFloat = 34
+    public static let maximumHeight: CGFloat = 140
     public static let screenMargin: CGFloat = 36
 
     public static func make(
@@ -26,9 +27,9 @@ public enum TranscriptionHUDLayout {
         let sections = [hasHeader, textHeight > 0, hasFooter].filter(\.self).count
         if sections > 1 { reserved += sectionSpacing * CGFloat(sections - 1) }
         let naturalHeight = verticalPadding + reserved + max(0, textHeight)
-        let maximumHeight = max(minimumHeight, screenHeight - screenMargin)
+        let maximumHeight = min(Self.maximumHeight, max(minimumHeight, screenHeight - screenMargin))
         let panelHeight = min(max(minimumHeight, naturalHeight), maximumHeight)
-        let textViewportHeight = max(0, panelHeight - verticalPadding - reserved)
+        let textViewportHeight = textHeight > 0 ? max(0, panelHeight - verticalPadding - reserved) : 0
         return TranscriptionHUDLayoutResult(
             panelHeight: panelHeight,
             textViewportHeight: textViewportHeight,

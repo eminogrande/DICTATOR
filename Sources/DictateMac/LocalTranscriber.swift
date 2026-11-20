@@ -172,7 +172,12 @@ final class LocalTranscriber {
 
     private static func writeWAV(_ samples: [Float], to url: URL) throws {
         try? FileManager.default.removeItem(at: url)
-        let settings: [String: Any] = [
+        // Session files are AAC; a live take writes the same container.
+        let settings: [String: Any] = url.pathExtension.lowercased() == "m4a"
+            ? [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: Double(WhisperKit.sampleRate),
+               AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 32_000,
+               AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue]
+            : [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: Double(WhisperKit.sampleRate),
             AVNumberOfChannelsKey: 1,

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased — feat/compressed-audio-retention
+
+### Rationale
+Match native macOS dictation: a double Fn tap keeps recording hands-free; a hold still records only while held.
+
+- Fast now keeps large-v3-turbo loaded in a localhost whisper.cpp server: ~1.9 s warm inference instead of ~8.6 s cold process/model loading. Fast no longer also loads the unused WhisperKit model.
+- Double-tap Fn latches the take; the next Fn press stops it. Single tap keeps prior behavior (short take), stopped after a 350 ms double-tap window.
+- Re-arm the CGEvent tap on `tapDisabledByTimeout` / `tapDisabledByUserInput` instead of silently losing the hotkey.
+- `AudioRecorder.start` releases any stale recorder first, so a half-closed audio stream cannot kill the next take.
+- Post-take AAC target lowered 128 → 32 kbit/s mono: ~3.5 MB per 15 min instead of ~29 MB WAV. Capture keeps WAV until compression and recovery run.
+- Local-only transcription: Fast large-v3-turbo is the default; the Cloud engine and gateway settings are removed.
+- Stale readiness failures retry automatically on Fn press instead of leaving Fast stuck unavailable.
+- Compact 220 pt top-bezel HUD below the camera with voice-gated live microphone waveform and timer; removed "live preview unavailable".
+- Faster post-release delivery: paste and hide the HUD before archive/graph disk writes, and skip activation delay when the target app is already frontmost.
+
 ## 0.9.33 — 2026-10-18 — Hermes — candidate
 
 Implementation `e063b216`; Draft PR #16. Not installed or released. Prior candidate: 159 Swift tests, 3 skipped, 0 failures; Brain 28 passed; real whisper.cpp inference passed; staged signed build passed. Final metadata-scan/marker/confirmation hardening and two new regressions await rerun and build approval.

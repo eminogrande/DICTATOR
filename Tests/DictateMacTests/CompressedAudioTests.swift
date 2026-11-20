@@ -89,13 +89,16 @@ final class CompressedAudioTests: XCTestCase {
         let source = try makeSyntheticWAV(duration: 2.0)
         let destination = scratchDir.appendingPathComponent("bitrate-test.m4a")
 
-        // Use default 128k target
+        // Default target is 32k: 2s must stay far below the ~64 KB WAV source.
         let result = try await CompressedAudio.compress(source: source, destination: destination)
+        XCTAssertGreaterThan(result.fileSize, 2_000)
+        XCTAssertLessThan(result.fileSize, 20_000)
 
-        // Rough size check: 128kbps ≈ 16KB/s, 2s ≈ 32KB minimum
-        // With AAC overhead we expect reasonable compression
-        XCTAssertGreaterThan(result.fileSize, 20_000, "128kbit AAC should be >20KB for 2s")
-        XCTAssertLessThan(result.fileSize, 500_000, "Should be much smaller than WAV")
+        // An explicit higher bitrate must produce a clearly larger file.
+        let louder = scratchDir.appendingPathComponent("bitrate-128.m4a")
+        let high = try await CompressedAudio.compress(
+            source: source, destination: louder, bitrate: 128_000)
+        XCTAssertGreaterThan(high.fileSize, result.fileSize * 2)
     }
 
     func testFailedEncodingPreservesOriginal() async throws {

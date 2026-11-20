@@ -6,7 +6,8 @@ import Foundation
 /// Preserves crash-safe PCM during recording; compresses finalized audio before saved/deferred transcribe.
 /// Subprocess output is spooled to private files (SubprocessCapture), never undrained Pipes.
 public enum CompressedAudio {
-    public static let targetBitrate = 128_000
+    /// 32 kbit/s mono AAC: ~3.5 MB per 15 min instead of ~29 MB WAV, ASR-neutral.
+    public static let targetBitrate = 32_000
     public static let sampleRate = 44_100
 
     public struct Result: Sendable {

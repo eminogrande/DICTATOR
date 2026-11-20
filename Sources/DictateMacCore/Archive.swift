@@ -622,7 +622,8 @@ public struct ArchiveStore: Sendable {
             let transcript = (try? String(contentsOf: oldTranscriptURL, encoding: .utf8)) ?? ""
             let analysis = GraphBrainText.analyze(transcript)
             let base = ArchiveNaming.baseName(sequence: sequence, date: metadata.startedAt, headline: analysis.headline)
-            let newAudioURL = rootURL.appendingPathComponent(base + ".wav")
+            let newAudioURL = rootURL.appendingPathComponent(
+                base + "." + (oldAudioURL.pathExtension.isEmpty ? "wav" : oldAudioURL.pathExtension))
             let newTranscriptURL = rootURL.appendingPathComponent(base + ".txt")
             let newMetadataURL = rootURL.appendingPathComponent(base + ".json")
 

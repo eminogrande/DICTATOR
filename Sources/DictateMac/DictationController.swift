@@ -39,6 +39,7 @@ final class DictationController: ObservableObject {
     @Published private(set) var transcriptionHUDTitle = ""
     @Published private(set) var liveConfirmedText = ""
     @Published private(set) var liveProvisionalText = ""
+    private var micWaveformSamples: [Float] = []
     @Published private(set) var liveAudioProgress = LiveAudioProgress(
         waveform: [],
         audioDuration: 0,
@@ -193,8 +194,7 @@ final class DictationController: ObservableObject {
 
         isBusy = false
         refreshReadiness()
-        preparePreview()
-        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.075, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateAudioActivity() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -732,6 +732,7 @@ final class DictationController: ObservableObject {
     /// its engine. Slow results from a previous selection are discarded.
     func refreshReadiness() {
         let engine = transcriptionEngine
+        if engine != .whisperCpp { WhisperCppServer.shutdown() }
         let token = readiness.begin(engineID: engine.rawValue)
         if !hasActiveWork && activityPhase == "idle" { statusText = readinessStatus }
         // A stuck optional/Built-in load must not delay a newly selected sidecar.
@@ -809,6 +810,18 @@ final class DictationController: ObservableObject {
             guard !isRecording, !operationInProgress else { return }
             guard ensureReady() else {
                 blockedHUDVisible = true
+                if !readiness.isLoading {
+                    recordingStartedByFn = true
+                    fnReleasedDuringStartup = false
+                    compressMode = action == .compressStart
+                    refreshReadiness()
+                    let retry = readinessTask
+                    pendingFnStart = Task {
+                        await retry?.value
+                        guard !Task.isCancelled, !fnReleasedDuringStartup, modelReady else { return }
+                        await startRecording(triggeredByFn: true, forceMeetingAudio: false)
+                    }
+                }
                 return
             }
             blockedHUDVisible = false
@@ -822,6 +835,9 @@ final class DictationController: ObservableObject {
                 guard !Task.isCancelled, !fnReleasedDuringStartup else { return }
                 await startRecording(triggeredByFn: true, forceMeetingAudio: false)
             }
+        case .latch:
+            // Double-tap: the take keeps running; nothing to (re)start.
+            break
         case .stop, .compressStop:
             blockedHUDVisible = false
             if meetingAfterStartup { return }
@@ -977,7 +993,7 @@ final class DictationController: ObservableObject {
             if transcriptionHUDTitle == "Starting recording…" {
                 transcriptionHUDTitle = streamingActive
                     ? "Recording — listening…"
-                    : "Recording — live preview unavailable"
+                    : "Recording"
             }
             isLatchedRecordingPublished = !triggeredByFn
             isBusy = false
@@ -1081,20 +1097,31 @@ final class DictationController: ObservableObject {
                 micRecorder.stop()
             }
             streamingActive = false
+            // Full-file pass: engines take WAV, recordings are AAC.
+            let wavURL: URL
+            var decoded: URL?
+            if CompressedAudio.isCompressedFormat(session.audioURL) {
+                let temp = try await CompressedAudio.temporaryWAV16kMono(from: session.audioURL)
+                decoded = temp
+                wavURL = temp
+            } else {
+                wavURL = session.audioURL
+            }
+            defer { if let decoded { try? FileManager.default.removeItem(at: decoded) } }
             // Full-file pass: pick the engine the user selected. Qwen3-ASR reads the
             // saved WAV directly; WhisperKit keeps its in-process samples path.
             let rawTranscript: String
             switch sessionEngine {
             case .qwen3ASR:
-                let qwen = try await QwenASRService.transcribe(wavURL: session.audioURL)
+                let qwen = try await QwenASRService.transcribe(wavURL: wavURL)
                 session.metadata.model = qwen.model
                 rawTranscript = qwen.text
             case .whisperCpp:
-                let wcpp = try await WhisperCppService.transcribe(wavURL: session.audioURL)
+                let wcpp = try await WhisperCppService.transcribe(wavURL: wavURL)
                 session.metadata.model = wcpp.model
                 rawTranscript = wcpp.text
             case .whisperKit:
-                rawTranscript = try await transcriber.transcribe(wavURL: session.audioURL)
+                rawTranscript = try await transcriber.transcribe(wavURL: wavURL)
             }
             let transcript = TranscriptCleaner.clean(rawTranscript)
             guard !transcript.isEmpty else {
@@ -1117,12 +1144,6 @@ final class DictationController: ObservableObject {
             session.metadata.enhancementEvidencePaths = enhancementResult.evidence.compactMap(\.path)
             session.metadata.usefulContext = enhancementResult.enhancement?.usefulContext
             session.metadata.enhancementError = enhancementResult.error
-            session = try archive.nameAndWriteTranscript(
-                finalTranscript,
-                rawTranscript: enhancementResult.enhancement == nil ? nil : transcript,
-                for: session
-            )
-            currentSession = session
 
             // Fn+A: compress to a minimal numbered list before delivering.
             var deliveredText = finalTranscript
@@ -1145,15 +1166,21 @@ final class DictationController: ObservableObject {
             liveProvisionalText = ""
             transcriptionHUDTitle = "Copying transcript"
             statusText = "Delivering final transcript"
-            // Re-resolve the target at delivery time: paste into whatever the user
-            // is working in NOW, not where the take started.
+            // Re-resolve the target at delivery time and paste BEFORE archive/graph disk I/O.
             let deliveryTarget = targetTracker.targetApplication() ?? targetApplication
             let delivery = await TranscriptDeliveryService.deliver(
                 deliveredText,
                 to: deliveryTarget,
                 mode: AutoPastePolicy.deliveryMode(isEnabled: currentSessionAutoPasteEnabled)
             )
+            stopLivePresentation()
 
+            session = try archive.nameAndWriteTranscript(
+                finalTranscript,
+                rawTranscript: enhancementResult.enhancement == nil ? nil : transcript,
+                for: session
+            )
+            currentSession = session
             session.metadata.status = .completed
             session.metadata.completedAt = Date()
             session.metadata.delivery = delivery
@@ -1163,7 +1190,6 @@ final class DictationController: ObservableObject {
             activityPhase = "completed"
             refreshSessions()
 
-            stopLivePresentation()
             refreshAccessibilityPermission()
             switch delivery {
             case .accessibilityInserted:
@@ -1224,6 +1250,27 @@ final class DictationController: ObservableObject {
         }
         microphoneLevel = streamingActive ? (liveAudioProgress.waveform.last ?? 0) : micRecorder.level
         microphoneStatus = (!streamingActive && !micRecorder.isRecording) ? "Not recording" : (microphoneLevel > 0.01 ? "Receiving audio" : "Quiet")
+        if !streamingActive {
+            // Clear noise gate: silence stays flat (0); speech drives bold bars (0.2..1.0).
+            let floor: Float = 0.012
+            let visual: Float
+            if microphoneLevel <= floor {
+                visual = 0
+            } else {
+                let scaled = (microphoneLevel - floor) / 0.14
+                visual = min(1, max(0.2, pow(scaled, 0.52)))
+            }
+            micWaveformSamples.append(visual)
+            if micWaveformSamples.count > 24 {
+                micWaveformSamples.removeFirst(micWaveformSamples.count - 24)
+            }
+            let elapsed = max(0.05, recordingElapsed)
+            liveAudioProgress = LiveAudioProgress(
+                waveform: micWaveformSamples,
+                audioDuration: elapsed,
+                transcribedPosition: elapsed
+            )
+        }
         if let capture = systemAudioCapture {
             systemAudioLevel = capture.level
             if let error = capture.captureError { systemAudioStatus = error }
@@ -1465,6 +1512,7 @@ final class DictationController: ObservableObject {
         transcriptionHUDTitle = "Starting recording…"
         liveConfirmedText = ""
         liveProvisionalText = ""
+        micWaveformSamples = []
         liveAudioProgress = LiveAudioProgress(
             waveform: [],
             audioDuration: 0,
@@ -1477,6 +1525,7 @@ final class DictationController: ObservableObject {
         transcriptionHUDTitle = ""
         liveConfirmedText = ""
         liveProvisionalText = ""
+        micWaveformSamples = []
         liveAudioProgress = LiveAudioProgress(
             waveform: [],
             audioDuration: 0,

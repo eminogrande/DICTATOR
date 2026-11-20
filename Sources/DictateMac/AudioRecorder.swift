@@ -49,6 +49,9 @@ final class AudioRecorder: MicrophoneRecording {
     }
 
     func start(at url: URL) throws {
+        // Never leave a half-closed stream behind: a stale recorder is the
+        // usual cause of the next hotkey press dying on the audio device.
+        stop()
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 16_000,

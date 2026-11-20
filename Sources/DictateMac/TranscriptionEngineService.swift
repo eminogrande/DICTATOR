@@ -26,6 +26,10 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
         Self.toolsURL.appendingPathComponent("wcpp/bin/whisper-cli", isDirectory: false)
     }
 
+    static var wcppServerURL: URL {
+        Self.toolsURL.appendingPathComponent("wcpp/bin/whisper-server", isDirectory: false)
+    }
+
     static var wcppModelURL: URL {
         Self.toolsURL.appendingPathComponent("wcpp/models/ggml-large-v3-turbo-q5_0.bin", isDirectory: false)
     }
@@ -58,7 +62,7 @@ enum TranscriptionEngine: String, CaseIterable, Identifiable {
         switch self {
         case .whisperKit: return // A validated in-memory model needs no sidecar.
         case .whisperCpp:
-            executable = toolsURL.appendingPathComponent("wcpp/bin/whisper-cli")
+            executable = toolsURL.appendingPathComponent("wcpp/bin/whisper-server")
             models = ["ggml-large-v3-turbo-q5_0.bin", "ggml-silero-v6.2.0.bin"].map {
                 toolsURL.appendingPathComponent("wcpp/models/" + $0)
             }
@@ -164,15 +168,7 @@ enum WhisperCppService {
     }
 
     static func transcribe(wavURL: URL, timeout: TimeInterval? = nil) async throws -> Result {
-        let directory = try EngineValidation.temporaryOutputDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let output = directory.appendingPathComponent("transcript")
-        let result = try await SubprocessCapture.run(
-            executableURL: TranscriptionEngine.wcppURL,
-            arguments: arguments(wavURL: wavURL) + ["-np", "-nt", "-otxt", "-of", output.path],
-            environment: TranscriptionEngine.localEnvironment, timeout: timeout)
-        return Result(text: try EngineValidation.checkedText(result, output: output.appendingPathExtension("txt")),
-                      model: "whisper.cpp large-v3-turbo")
+        try await WhisperCppServer.shared.transcribe(wavURL: wavURL, timeout: timeout ?? 120)
     }
 }
 

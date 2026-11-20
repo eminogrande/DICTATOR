@@ -232,6 +232,29 @@ final class CaptureHealthTests: XCTestCase {
         XCTAssertEqual(DictationController.captureWarning("Mic failed", adding: "Mic failed"), "Mic failed")
         XCTAssertEqual(DictationController.captureWarning("Mic failed", adding: "Disk full"), "Mic failed\nDisk full")
     }
+
+    @MainActor
+    func testNonStreamingRecordingFeedsLiveWaveformWithoutLivePreviewUnavailable() async throws {
+        let (controller, microphone, _) = try fixture()
+        controller.refreshReadiness()
+        try await wait { controller.canStartDictation }
+        controller.handleFnAction(.start)
+        try await wait { controller.isRecording }
+
+        XCTAssertFalse(controller.transcriptionHUDTitle.localizedCaseInsensitiveContains("live preview unavailable"))
+        XCTAssertEqual(controller.transcriptionHUDTitle, "Recording")
+
+        microphone.level = 0.0
+        controller.updateAudioActivity()
+        microphone.level = 0.35
+        controller.updateAudioActivity()
+
+        XCTAssertEqual(controller.liveAudioProgress.waveform.count, 2)
+        XCTAssertGreaterThan(controller.liveAudioProgress.audioDuration, 0)
+        XCTAssertGreaterThan(controller.liveAudioProgress.waveform[1], controller.liveAudioProgress.waveform[0])
+
+        controller.handleFnAction(.stop)
+    }
 }
 
 /// Writes one real silent PCM WAV, but never opens a device or plays sound.

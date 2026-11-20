@@ -79,7 +79,7 @@ Expand **Brain-enhanced transcript** in the menu, save an OpenRouter API key, ch
 ## Privacy
 
 - Default mode is fully local: audio and transcription stay on this Mac.
-- Default **Fast** engine runs `whisper.cpp` (`large-v3-turbo` Q5_0 + Silero VAD) in a persistent localhost server on `127.0.0.1` so the model stays warm between takes. Optional local engines include Built-in WhisperKit and MLX Qwen3-ASR.
+- Default **Fast** engine runs `whisper.cpp` (`large-v3-turbo` Q5_0 + Silero VAD) in a persistent localhost server on `127.0.0.1` so the model stays warm between takes. Hold-Fn dictation and full-meeting transcription use this same model with automatic German/English detection; meetings use the separate `whisper-cli` path for long-file progress and cancellation. Optional local engines include Built-in WhisperKit and MLX Qwen3-ASR.
 - OpenRouter enhancement is optional and off by default. When enabled, it sends the cleaned transcript and at most eight short Brain snippets; audio and the full Brain never leave the Mac.
 - The OpenRouter key is stored in macOS Keychain, not UserDefaults, source code, logs, or archive metadata.
 - DICTATOR has no analytics or cloud sync.
@@ -109,4 +109,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Source version `0.9.33` / build `52` — 2026-10-18 — Hermes — implementation `e063b216`. [Draft PR #16](https://github.com/eminogrande/DICTATOR/pull/16), stacked on capture recovery; no merge or release. The preceding candidate passed 159 Swift tests (3 skipped, 0 failures), 28 Brain tests and actual whisper.cpp inference; its staged signed app built successfully. Final metadata-scan/marker/confirmation hardening and two added regressions still require a new test/build run. Installed version remains `0.9.32`; no historical audio was deleted. Local macOS verification/install approval is pending. See `docs/AUDIO_STORAGE_PLAN.md` for scope and preservation gates.
+Development branch `feat/compressed-audio-retention` includes warm local Fast inference, compact voice-reactive HUD, double-Fn latch, faster paste and 32 kbit/s AAC retention. Latest verification: 168 Swift tests passed, 3 skipped, 0 failures; signed app installed. No merge or release yet. Two historical untranscribed recordings and their audio remain preserved.

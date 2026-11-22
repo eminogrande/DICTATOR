@@ -32,12 +32,17 @@ actor WhisperCppServer {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw EngineValidationError("Local transcription server failed: \(String(decoding: data, as: UTF8.self))")
         }
+        return try Self.result(from: data)
+    }
+
+    static func result(from data: Data) throws -> WhisperCppService.Result {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let raw = json["text"] as? String else {
             throw EngineValidationError("Local transcription server returned no transcript.")
         }
         let text = TranscriptCleaner.clean(raw)
-        guard !text.isEmpty else { throw EngineValidationError("Local engine produced no transcript.") }
+        // Silence is a normal take result, not a broken model. Keep Fast ready.
+        guard !text.isEmpty else { throw DictationError.emptyTranscript }
         return WhisperCppService.Result(text: text, model: "whisper.cpp large-v3-turbo (warm)")
     }
 

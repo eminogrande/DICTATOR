@@ -1535,7 +1535,7 @@ final class DictationController: ObservableObject {
 
 }
 
-private enum DictationError: LocalizedError {
+enum DictationError: LocalizedError {
     case emptyTranscript
 
     var errorDescription: String? {

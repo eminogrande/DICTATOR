@@ -15,6 +15,7 @@ Match native macOS dictation: a double Fn tap keeps recording hands-free; a hold
 - Compact 220 pt top-bezel HUD below the camera with voice-gated live microphone waveform and timer; removed "live preview unavailable".
 - Faster post-release delivery: paste and hide the HUD before archive/graph disk writes, and skip activation delay when the target app is already frontmost.
 - Compared free local German candidates on the same real 60-second meeting excerpt: warm large-v3-turbo took 3.77 s; Qwen3-ASR-1.7B-8bit took 9.17 s and showed no clear terminology improvement. Keep the current model rather than adopting a slower, unproven default.
+- Silent/very short takes no longer mark Fast unavailable or trigger another readiness probe on the next Fn press. The already-loaded model stays ready; genuine server/model failures still block capture.
 
 ## 0.9.33 — 2026-10-18 — Hermes — candidate
 

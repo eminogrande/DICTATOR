@@ -109,4 +109,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Development branch `feat/compressed-audio-retention` includes warm local Fast inference, compact voice-reactive HUD, double-Fn latch, faster paste and 32 kbit/s AAC retention. Latest verification: 168 Swift tests passed, 3 skipped, 0 failures; signed app installed. No merge or release yet. Two historical untranscribed recordings and their audio remain preserved.
+Development branch `feat/compressed-audio-retention` includes warm local Fast inference, compact voice-reactive HUD, double-Fn latch, faster paste and 32 kbit/s AAC retention. Silent takes leave Fast ready instead of showing a spurious loading state on the next Fn press. Latest verification: 169 Swift tests passed, 3 skipped, 0 failures. No merge or release yet. Two historical untranscribed recordings and their audio remain preserved.

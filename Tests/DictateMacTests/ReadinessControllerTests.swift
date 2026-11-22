@@ -158,6 +158,16 @@ final class ReadinessControllerTests: XCTestCase {
         XCTAssertFalse(try EngineValidation.checkedText(result, output: out).isEmpty)
     }
 
+    func testWarmServerSilenceDoesNotBecomeAnEngineFailure() throws {
+        let data = Data(#"{"text":"  \n"}"#.utf8)
+        XCTAssertThrowsError(try WhisperCppServer.result(from: data)) { error in
+            XCTAssertTrue(error is DictationError)
+            XCTAssertEqual(error.localizedDescription, "No speech was recognized.")
+        }
+        let result = try WhisperCppServer.result(from: Data(#"{"text":"Ready."}"#.utf8))
+        XCTAssertEqual(result.text, "Ready.")
+    }
+
     func testWhisperProbeUsesVADAndSameArgumentsAsFinalPass() {
         let args = WhisperCppService.arguments(wavURL: EngineValidation.fixtureURL)
         XCTAssertTrue(args.contains("--vad"))

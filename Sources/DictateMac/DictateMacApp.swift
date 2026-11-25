@@ -58,6 +58,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: Notification.Name("DICTATORShowPreferences"), object: nil)
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        WhisperCppServer.shutdown()
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }

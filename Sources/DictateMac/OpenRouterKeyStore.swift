@@ -2,8 +2,13 @@ import Foundation
 import Security
 
 struct OpenRouterKeyStore {
-    private let service = "de.emin.DictateMac.openrouter"
-    private let account = "api-key"
+    let service: String
+    let account: String
+
+    init(service: String = "de.emin.DictateMac.openrouter", account: String = "api-key") {
+        self.service = service
+        self.account = account
+    }
 
     func read() throws -> String? {
         let query: [String: Any] = [

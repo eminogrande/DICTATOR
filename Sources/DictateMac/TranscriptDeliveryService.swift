@@ -90,13 +90,16 @@ enum TranscriptDeliveryService {
     }
 
     private static func postPasteShortcut(to targetApplication: NSRunningApplication) async -> Bool {
-        guard targetApplication.activate() else {
-            return false
+        let alreadyFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier == targetApplication.processIdentifier
+        if !alreadyFrontmost {
+            guard targetApplication.activate() else {
+                return false
+            }
+            guard await waitUntilFrontmost(targetApplication.processIdentifier) else {
+                return false
+            }
+            try? await Task.sleep(for: .milliseconds(80))
         }
-        guard await waitUntilFrontmost(targetApplication.processIdentifier) else {
-            return false
-        }
-        try? await Task.sleep(for: .milliseconds(120))
 
         guard let source = CGEventSource(stateID: .combinedSessionState),
               let commandDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),

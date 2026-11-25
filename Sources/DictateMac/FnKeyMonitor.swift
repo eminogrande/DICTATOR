@@ -22,6 +22,8 @@ final class FnKeyMonitor {
     private var compressSession = false
     private var globalKeyUp: Any?
     private var localKeyUp: Any?
+    /// Pending deferred stop for a single tap that may still become a double tap.
+    private var doubleTapTimeout: Task<Void, Never>?
 
     init(onAction: @escaping (PushToTalkAction) -> Void) {
         self.onAction = onAction
@@ -56,6 +58,8 @@ final class FnKeyMonitor {
     }
 
     func stop() {
+        doubleTapTimeout?.cancel()
+        doubleTapTimeout = nil
         for monitor in [globalFlags, localFlags, globalKeys, localKeys, globalKeyUp, localKeyUp] {
             if let monitor { NSEvent.removeMonitor(monitor) }
         }
@@ -69,23 +73,46 @@ final class FnKeyMonitor {
         if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: false) }
         tapSource = nil
         eventTap = nil
+        tapOwner.tap = nil
     }
 
     private func handleFlags(_ event: NSEvent) {
         let action = state.handle(
             keyCode: event.keyCode,
-            functionFlag: event.modifierFlags.contains(.function)
+            functionFlag: event.modifierFlags.contains(.function),
+            at: event.timestamp
         )
+        doubleTapTimeout?.cancel()
+        doubleTapTimeout = nil
         switch action {
         case .start:
             // Fn pressed while 'a' is already held → compress session.
             compressSession = aDown
             onAction(compressSession ? .compressStart : .start)
+        case .latch:
+            // Second tap: keep the running take and stay hands-free.
+            onAction(state.isLatched ? .latch : .start)
         case .stop:
             onAction(compressSession ? .compressStop : .stop)
             compressSession = false
+        case .none:
+            scheduleDoubleTapTimeout()
         default:
             break
+        }
+    }
+
+    /// Fires the deferred stop of a single tap that never doubled.
+    private func scheduleDoubleTapTimeout() {
+        guard let delay = state.secondsUntilDoubleTapTimeout else { return }
+        doubleTapTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((delay + 0.02) * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            if self.state.handleDoubleTapTimeout(
+                at: ProcessInfo.processInfo.systemUptime
+            ) == .stop {
+                self.onAction(.stop)
+            }
         }
     }
 
@@ -120,7 +147,14 @@ final class FnKeyMonitor {
             options: .defaultTap,
             eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
             callback: { _, type, event, userInfo in
-                guard type == .keyDown, let userInfo else {
+                guard let userInfo else { return Unmanaged.passUnretained(event) }
+                // macOS disables a tap that blocked too long; re-arm instead of going deaf.
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    let owner = Unmanaged<TapOwner>.fromOpaque(userInfo).takeUnretainedValue()
+                    if let tap = owner.tap { CGEvent.tapEnable(tap: tap, enable: true) }
+                    return Unmanaged.passUnretained(event)
+                }
+                guard type == .keyDown else {
                     return Unmanaged.passUnretained(event)
                 }
                 let key = event.getIntegerValueField(.keyboardEventKeycode)
@@ -135,6 +169,7 @@ final class FnKeyMonitor {
             userInfo: owner
         ) else { return }
         eventTap = tap
+        tapOwner.tap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         tapSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
@@ -144,4 +179,5 @@ final class FnKeyMonitor {
 
 private final class TapOwner {
     var handler: () -> Void = {}
+    var tap: CFMachPort?
 }

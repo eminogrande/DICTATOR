@@ -58,6 +58,23 @@ final class ReadinessControllerTests: XCTestCase {
     }
 
     @MainActor
+    func testFnRetriesStaleFailureInsteadOfStayingUnavailable() async throws {
+        var attempts = 0
+        let c = controller { _ in
+            attempts += 1
+            if attempts == 1 { throw EngineValidationError("Stale server") }
+        }
+        c.refreshReadiness()
+        try await settled(c)
+        XCTAssertNotNil(c.readiness.error)
+        c.handleFnAction(.start)
+        try await settled(c)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertTrue(c.canStartDictation)
+        c.handleFnAction(.stop)
+    }
+
+    @MainActor
     func testSelectionImmediatelyRevokesReadyAndOldProbeCannotEnableNewEngine() async throws {
         let c = controller { engine in
             if engine == .qwen3ASR { throw EngineValidationError("Missing cached weights") }
@@ -100,7 +117,7 @@ final class ReadinessControllerTests: XCTestCase {
         let bin = root.appendingPathComponent("wcpp/bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/true"),
-                                         to: bin.appendingPathComponent("whisper-cli"))
+                                         to: bin.appendingPathComponent("whisper-server"))
         let c = controller { try $0.checkInstallation(toolsURL: root) }
         c.refreshReadiness()
         try await settled(c)
@@ -141,6 +158,16 @@ final class ReadinessControllerTests: XCTestCase {
         XCTAssertFalse(try EngineValidation.checkedText(result, output: out).isEmpty)
     }
 
+    func testWarmServerSilenceDoesNotBecomeAnEngineFailure() throws {
+        let data = Data(#"{"text":"  \n"}"#.utf8)
+        XCTAssertThrowsError(try WhisperCppServer.result(from: data)) { error in
+            XCTAssertTrue(error is DictationError)
+            XCTAssertEqual(error.localizedDescription, "No speech was recognized.")
+        }
+        let result = try WhisperCppServer.result(from: Data(#"{"text":"Ready."}"#.utf8))
+        XCTAssertEqual(result.text, "Ready.")
+    }
+
     func testWhisperProbeUsesVADAndSameArgumentsAsFinalPass() {
         let args = WhisperCppService.arguments(wavURL: EngineValidation.fixtureURL)
         XCTAssertTrue(args.contains("--vad"))
@@ -149,14 +176,32 @@ final class ReadinessControllerTests: XCTestCase {
         XCTAssertEqual(TranscriptionEngine.localEnvironment["HF_HUB_OFFLINE"], "1")
     }
 
+    func testWarmServerSendsAudioAndJSONResponseFormat() throws {
+        let request = try WhisperCppServer.request(
+            wavURL: EngineValidation.fixtureURL,
+            endpoint: URL(string: "http://127.0.0.1:17891")!, timeout: 12)
+        XCTAssertEqual(request.url?.path, "/inference")
+        XCTAssertEqual(request.timeoutInterval, 12)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("multipart/form-data; boundary="), true)
+        let body = try XCTUnwrap(request.httpBody)
+        XCTAssertTrue(body.contains(try Data(contentsOf: EngineValidation.fixtureURL)))
+        XCTAssertTrue(String(decoding: body.suffix(250), as: UTF8.self).contains("name=\"response_format\""))
+    }
+
     func testInstalledSidecarsReallyInferWhenExplicitlyRequested() async throws {
         guard ProcessInfo.processInfo.environment["DICTATOR_VALIDATE_LOCAL_ENGINES"] == "1" else {
             throw XCTSkip("Opt-in local integration: DICTATOR_VALIDATE_LOCAL_ENGINES=1 ./test.sh --filter testInstalledSidecars")
         }
         let requested = ProcessInfo.processInfo.environment["DICTATOR_VALIDATE_ENGINE"]
+        defer { WhisperCppServer.shutdown() }
         for engine in [TranscriptionEngine.whisperCpp, .qwen3ASR] where requested == nil || requested == engine.rawValue {
             try await EngineValidation.validateSidecar(engine)
             print("INFERENCE_VALIDATED: \(engine.rawValue)")
+            if engine == .whisperCpp {
+                let start = Date()
+                _ = try await WhisperCppService.transcribe(wavURL: EngineValidation.fixtureURL)
+                print("WARM_INFERENCE_SECONDS: \(Date().timeIntervalSince(start))")
+            }
         }
     }
 }

@@ -71,7 +71,12 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertNil(c.sessions.first?.metadata.error)
         XCTAssertNil(c.sessions.first?.metadata.delivery) // no paste on background retry
         XCTAssertEqual(try String(contentsOf: session.transcriptURL), "Meeting test transcript.")
-        XCTAssertEqual(try Data(contentsOf: session.audioURL), audio)
+        // Durable success purges session-owned audio (transcript-only retention);
+        // the failed first attempt above kept it intact.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: session.audioURL.path))
+        let persisted = try MetadataCodec.decode(Data(contentsOf: session.metadataURL))
+        XCTAssertEqual(persisted.status, .completed)
+        XCTAssertNotNil(persisted.audioDeletedAt)
     }
 
     @MainActor

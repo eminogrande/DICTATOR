@@ -2,27 +2,42 @@
 
 A fun, local macOS dictation app. Each take is transcribed in the language Whisper hears on the microphone. It does not translate into another language.
 
+## Logs
+
+- [CHANGELOG.md](CHANGELOG.md) — changes and rationale.
+- [PROMPTLOG.md](PROMPTLOG.md) — product requirements.
+
 ## Use
 
 1. Start `DICTATOR.app`; its microphone icon appears in the menu bar.
 2. Grant **Microphone** and **Accessibility** when prompted. Accessibility is required for the global Fn trigger and auto-paste.
 3. Put the cursor in any text field.
 4. Choose **Auto-Paste On** to insert at the current cursor, or **Off** to copy only.
-5. Hold **Fn/Globe** while speaking. Release Fn for the final local pass. After release the HUD shows **Transcribing locally, please wait…** at the bottom.
+5. Hold **Fn/Globe** while speaking (release to stop), or double-tap **Fn/Globe** to latch hands-free (press Fn again to stop). A compact top-bezel HUD below the camera shows live microphone input bars while recording, then transcribes locally and pastes immediately.
 6. Press **Fn+R** to start a hands-free meeting recording of microphone + Mac audio. Press **Fn+R** again to stop and transcribe. This works while you are already in a meeting. Grant **Screen & System Audio Recording** when asked. The menu **Record/Stop** button remains a fallback.
 
 If auto-paste is unavailable, the transcript remains on the clipboard. Click **Enable Accessibility…** in the menu and allow DICTATOR under **System Settings → Privacy & Security → Accessibility**.
 
 ## What is stored
 
-Every attempt is kept permanently. Nothing is auto-deleted. Completed recordings use one flat archive with matching names:
+Text and session metadata remain in the flat archive. Finalized saved audio uses native AAC/M4A with a 32 kbit/s mono target (~3.5 MB per 15 min); temporary crash-safe capture remains WAV. After a nonempty transcript and completed metadata have been saved, session-owned audio is automatically removed. Failed/untranscribed sessions keep audio for retry; failed compression preserves originals. Earlier completed recordings are removed only after an in-app confirmation, also available in **Settings → Speicherplatz**.
+
+```mermaid
+flowchart LR
+  Record[Record mic and Mac audio] --> Finalize[Recover and mix finalized tracks]
+  Finalize --> Compress[AAC M4A target 32 kbit per second]
+  Compress --> Transcribe[Local transcription]
+  Transcribe -->|success| Text[Keep transcript and metadata only]
+  Transcribe -->|failure| Retry[Keep audio and offer Retry]
+```
 
 ```text
 ~/Library/Application Support/DictateMac/Dictations/
-000001_2026-08-14_12-30_short-headline.wav
 000001_2026-08-14_12-30_short-headline.txt
 000001_2026-08-14_12-30_short-headline.json
 ```
+
+Audio filename references remain in metadata for lineage after deletion; a completed text-only recording remains visible as **Nur Text**.
 
 When optional AI enhancement succeeds, the exact local Whisper result is also kept as `000001_…_short-headline.raw.txt`; the normal `.txt` contains the validated corrected transcript.
 
@@ -64,8 +79,7 @@ Expand **Brain-enhanced transcript** in the menu, save an OpenRouter API key, ch
 ## Privacy
 
 - Default mode is fully local: audio and transcription stay on this Mac.
-- First launch downloads `openai_whisper-large-v3_turbo` from `argmaxinc/whisperkit-coreml` on Hugging Face.
-- After that download, speech recognition runs locally through WhisperKit/Core ML.
+- Default **Fast** engine runs `whisper.cpp` (`large-v3-turbo` Q5_0 + Silero VAD) in a persistent localhost server on `127.0.0.1` so the model stays warm between takes. Hold-Fn dictation and full-meeting transcription use this same model with automatic German/English detection; meetings use the separate `whisper-cli` path for long-file progress and cancellation. Optional local engines include Built-in WhisperKit and MLX Qwen3-ASR.
 - OpenRouter enhancement is optional and off by default. When enabled, it sends the cleaned transcript and at most eight short Brain snippets; audio and the full Brain never leave the Mac.
 - The OpenRouter key is stored in macOS Keychain, not UserDefaults, source code, logs, or archive metadata.
 - DICTATOR has no analytics or cloud sync.
@@ -95,4 +109,4 @@ open dist/DICTATOR.app
 
 ## Current status
 
-Version `0.9.0`: verified dictation behavior plus multilingual hybrid Brain retrieval, source-backed semantic indexes, and incremental daily/manual managed-repository updates.
+Development branch `feat/compressed-audio-retention` includes warm local Fast inference, compact voice-reactive HUD, double-Fn latch, faster paste and 32 kbit/s AAC retention. Silent takes leave Fast ready instead of showing a spurious loading state on the next Fn press. Latest verification: 169 Swift tests passed, 3 skipped, 0 failures. No merge or release yet. Two historical untranscribed recordings and their audio remain preserved.
